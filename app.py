@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 
 # Give your app a title
-st.title("My First Streamlit App! 🎈")
+st.title("My First Streamlit App - Sample Dashboard ! 🎈")
 
 # Add some text
 st.write("Welcome to the app. Here is a sample dataset:")
