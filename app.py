@@ -463,47 +463,47 @@ elif menu == "Accounts":
         )
 
 # ==========================================
-    # MODULE 2: ASSETS & LIABILITIES
-    # ==========================================
-    elif menu == "Assets & Liabilities":
-        st.header("🏠 Assets & Liabilities")
+# MODULE 2: ASSETS & LIABILITIES
+# ==========================================
+elif menu == "Assets & Liabilities":
+    st.header("🏠 Assets & Liabilities")
         
-        # We now have THREE tabs
-        tab1, tab2, tab3 = st.tabs(["➕ Add Item", "📋 View Portfolio", "✏️ Edit / Delete Item"])
+    # We now have THREE tabs
+    tab1, tab2, tab3 = st.tabs(["➕ Add Item", "📋 View Portfolio", "✏️ Edit / Delete Item"])
 
-        with tab1:
-            with st.form("add_asset_liability_form", clear_on_submit=True):
-                col1, col2 = st.columns(2)
-                with col1:
-                    item_name = st.text_input("Name", placeholder="e.g., Tata Punch EV, Rohan Saroha Apartment, Personal Loan")
-                    item_type = st.radio("Classification", ["Asset", "Liability"], horizontal=True)
-                    currency = st.selectbox("Valuation Currency", ["INR", "THB", "EUR", "USD"])
-                with col2:
-                    category = st.selectbox("Category", ["Real Estate", "Vehicle", "Home Loan", "Personal Loan", "Jewelry", "Other"])
-                    is_active = st.checkbox("Active", value=True)
-                    # --- NEW: Added FI Checkbox (Defaulted to False for physical assets) ---
-                    is_fi = st.checkbox("Count towards FI Wealth", value=False, help="Check this ONLY if this is a highly liquid asset you can sell for retirement living expenses.")
+    with tab1:
+        with st.form("add_asset_liability_form", clear_on_submit=True):
+            col1, col2 = st.columns(2)
+            with col1:
+                item_name = st.text_input("Name", placeholder="e.g., Tata Punch EV, Rohan Saroha Apartment, Personal Loan")
+                item_type = st.radio("Classification", ["Asset", "Liability"], horizontal=True)
+                currency = st.selectbox("Valuation Currency", ["INR", "THB", "EUR", "USD"])
+            with col2:
+                category = st.selectbox("Category", ["Real Estate", "Vehicle", "Home Loan", "Personal Loan", "Jewelry", "Other"])
+                is_active = st.checkbox("Active", value=True)
+                # --- NEW: Added FI Checkbox (Defaulted to False for physical assets) ---
+                is_fi = st.checkbox("Count towards FI Wealth", value=False, help="Check this ONLY if this is a highly liquid asset you can sell for retirement living expenses.")
                     
-                if st.form_submit_button("Save Item"):
-                    if item_name:
-                        with conn.session as s:
-                            # --- UPDATED: Added is_fi_eligible to INSERT statement ---
-                            sql = text("""
-                                INSERT INTO assets_liabilities (name, category, type, currency, is_active, is_fi_eligible) 
-                                VALUES (:name, :category, :type, :currency, :active, :fi);
-                            """)
-                            s.execute(sql, {
-                                "name": item_name, 
-                                "category": category, 
-                                "type": item_type, 
-                                "currency": currency, 
-                                "active": is_active,
-                                "fi": is_fi
-                            })
-                            s.commit()
-                        st.success(f"Successfully added: {item_name}")
+            if st.form_submit_button("Save Item"):
+                if item_name:
+                    with conn.session as s:
+                        # --- UPDATED: Added is_fi_eligible to INSERT statement ---
+                        sql = text("""
+                            INSERT INTO assets_liabilities (name, category, type, currency, is_active, is_fi_eligible) 
+                            VALUES (:name, :category, :type, :currency, :active, :fi);
+                        """)
+                        s.execute(sql, {
+                            "name": item_name, 
+                            "category": category, 
+                            "type": item_type, 
+                            "currency": currency, 
+                            "active": is_active,
+                            "fi": is_fi
+                        })
+                        s.commit()
+                    st.success(f"Successfully added: {item_name}")
 
-        with tab2:
+    with tab2:
             df_al = conn.query("SELECT * FROM assets_liabilities ORDER BY type ASC, id DESC;", ttl=0)
             
             # --- UPDATED: Configured column to show FI status cleanly ---
@@ -517,7 +517,7 @@ elif menu == "Accounts":
                 }
             )
 
-        with tab3:
+    with tab3:
             st.subheader("Modify or Remove an Item")
             df_edit_al = conn.query("SELECT * FROM assets_liabilities ORDER BY name;", ttl=0)
             
