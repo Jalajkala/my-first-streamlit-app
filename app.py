@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy import text
 from datetime import date
+import time
 
 # Page Configuration
 st.set_page_config(page_title="Finealth Dashboard", page_icon="🏦", layout="wide")
@@ -125,7 +126,9 @@ elif menu == "Accounts":
 # ==========================================
 elif menu == "Assets & Liabilities":
     st.header("🏠 Assets & Liabilities")
-    tab1, tab2 = st.tabs(["➕ Add Item", "📋 View Portfolio"])
+    
+    # We now have THREE tabs
+    tab1, tab2, tab3 = st.tabs(["➕ Add Item", "📋 View Portfolio", "✏️ Edit / Delete Item"])
 
     with tab1:
         with st.form("add_asset_liability_form", clear_on_submit=True):
@@ -135,7 +138,7 @@ elif menu == "Assets & Liabilities":
                 item_type = st.radio("Classification", ["Asset", "Liability"], horizontal=True)
                 currency = st.selectbox("Valuation Currency", ["INR", "THB", "EUR", "USD"])
             with col2:
-                category = st.selectbox("Category", ["Real Estate", "Vehicle", "Home Loan","Car Loan", "Personal Loan", "Jewelry", "Other"])
+                category = st.selectbox("Category", ["Real Estate", "Vehicle", "Home Loan", "Personal Loan", "Jewelry", "Other"])
                 is_active = st.checkbox("Active", value=True)
                 
             if st.form_submit_button("Save Item"):
@@ -149,6 +152,66 @@ elif menu == "Assets & Liabilities":
     with tab2:
         df_al = conn.query("SELECT * FROM assets_liabilities ORDER BY type ASC, id DESC;", ttl=0)
         st.dataframe(df_al, use_container_width=True, hide_index=True)
+
+    with tab3:
+        st.subheader("Modify or Remove an Item")
+        df_edit_al = conn.query("SELECT * FROM assets_liabilities ORDER BY name;", ttl=0)
+        
+        if not df_edit_al.empty:
+            # Create a dictionary mapping the label to the database ID
+            edit_options = {f"{row['name']} ({row['type']})": row['id'] for _, row in df_edit_al.iterrows()}
+            selected_edit_label = st.selectbox("Select Item to Modify", list(edit_options.keys()))
+            selected_id = edit_options[selected_edit_label]
+            
+            # Extract the current data for the selected item to pre-fill the form
+            current_data = df_edit_al[df_edit_al['id'] == selected_id].iloc[0]
+            
+            with st.form("edit_al_form"):
+                # A clever trick to put two distinct actions in one form
+                action = st.radio("Choose Action", ["Update Record", "Delete Record"], horizontal=True)
+                st.write("---")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    new_name = st.text_input("Name", value=current_data['name'])
+                    
+                    types = ["Asset", "Liability"]
+                    # Find the index of the current value so the radio button defaults correctly
+                    new_type = st.radio("Classification ", types, index=types.index(current_data['type']), horizontal=True)
+                    
+                    currencies = ["INR", "THB", "EUR", "USD"]
+                    new_currency = st.selectbox("Valuation Currency ", currencies, index=currencies.index(current_data['currency']))
+                with col2:
+                    categories = ["Real Estate", "Vehicle", "Home Loan", "Car Loan", "Personal Loan", "Jewelry", "Other"]
+                    cat_idx = categories.index(current_data['category']) if current_data['category'] in categories else 0
+                    new_category = st.selectbox("Category ", categories, index=cat_idx)
+                    
+                    new_active = st.checkbox("Active ", value=current_data['is_active'])
+                
+                if st.form_submit_button("Execute Action"):
+                    if action == "Delete Record":
+                        with conn.session as s:
+                            s.execute(text("DELETE FROM assets_liabilities WHERE id = :id"), {"id": selected_id})
+                            s.commit()
+                        st.success(f"Deleted {current_data['name']} successfully!")
+                        time.sleep(1) # Pause so you can read the success message
+                        st.rerun()    # Instantly refresh the page to update the dropdowns
+                        
+                    elif action == "Update Record":
+                        with conn.session as s:
+                            sql = text("""
+                                UPDATE assets_liabilities 
+                                SET name=:name, category=:cat, type=:type, currency=:curr, is_active=:active
+                                WHERE id=:id
+                            """)
+                            s.execute(sql, {
+                                "name": new_name, "cat": new_category, "type": new_type, 
+                                "curr": new_currency, "active": new_active, "id": selected_id
+                            })
+                            s.commit()
+                        st.success(f"Updated {new_name} successfully!")
+                        time.sleep(1)
+                        st.rerun()
 
 # ==========================================
 # MODULE 3: INVESTMENTS
@@ -195,7 +258,8 @@ elif menu == "Baseline Snapshots":
     st.header("📸 Baseline Snapshots")
     st.write("Record starting balances or point-in-time valuations to track your net worth in INR.")
     
-    tab1, tab2 = st.tabs(["➕ Add Snapshot", "📋 View Snapshots"])
+    # We now have THREE tabs
+    tab1, tab2, tab3 = st.tabs(["➕ Add Snapshot", "📋 View Snapshots", "✏️ Edit / Delete Snapshot"])
 
     with tab1:
         entity_type = st.selectbox("What are you recording a snapshot for?", ["Account", "Asset_Liability", "Investment"])
@@ -268,6 +332,56 @@ elif menu == "Baseline Snapshots":
                     "value_in_inr": st.column_config.NumberColumn("INR Equivalent", format="₹%.2f")
                 }
             )
+            
+    with tab3:
+        st.subheader("Modify or Remove a Snapshot")
+        # Reuse the rich view so we can display the actual item name in the dropdown
+        df_edit_snap = conn.query(sql_view, ttl=0)
+        
+        if not df_edit_snap.empty:
+            snap_options = {f"{row['snapshot_date']} - {row['entity_name']} (ID: {row['id']})": row['id'] for _, row in df_edit_snap.iterrows()}
+            selected_snap_label = st.selectbox("Select Snapshot to Modify", list(snap_options.keys()))
+            selected_id = snap_options[selected_snap_label]
+            
+            # Re-fetch the raw data for editing
+            current_data = conn.query(f"SELECT * FROM baseline_snapshots WHERE id = {selected_id}", ttl=0).iloc[0]
+            
+            with st.form("edit_snapshot_form"):
+                action = st.radio("Choose Action", ["Update Record", "Delete Record"], horizontal=True)
+                st.write(f"**Editing Snapshot for:** {selected_snap_label.split(' (')[0]}")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    new_date = st.date_input("Date of Snapshot", value=current_data['snapshot_date'])
+                    new_balance = st.number_input("Balance or Value", value=float(current_data['balance_or_value']), format="%.2f")
+                with col2:
+                    new_fx = st.number_input("Exchange Rate to INR", value=float(current_data['exchange_rate_to_inr']), format="%.4f")
+                    new_notes = st.text_input("Notes", value=current_data['notes'] if current_data['notes'] else "")
+                    
+                if st.form_submit_button("Execute Action"):
+                    if action == "Delete Record":
+                        with conn.session as s:
+                            s.execute(text("DELETE FROM baseline_snapshots WHERE id = :id"), {"id": selected_id})
+                            s.commit()
+                        st.success("Snapshot deleted successfully!")
+                        time.sleep(1)
+                        st.rerun()
+                        
+                    elif action == "Update Record":
+                        with conn.session as s:
+                            sql = text("""
+                                UPDATE baseline_snapshots 
+                                SET snapshot_date=:date, balance_or_value=:bal, exchange_rate_to_inr=:fx, notes=:notes
+                                WHERE id=:id
+                            """)
+                            s.execute(sql, {
+                                "date": new_date, "bal": new_balance, "fx": new_fx, 
+                                "notes": new_notes, "id": selected_id
+                            })
+                            s.commit()
+                        st.success("Snapshot updated successfully!")
+                        time.sleep(1)
+                        st.rerun()
 
 # ==========================================
 # MODULE 5: TRANSACTIONS
