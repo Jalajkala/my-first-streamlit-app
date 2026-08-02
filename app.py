@@ -110,7 +110,6 @@ if check_password():
 # ==========================================
 if menu == "Dashboard":
     
-    # --- ADD THIS NEW CSS BLOCK ---
     st.markdown("""
         <style>
         /* Shrink the main metric numbers */
@@ -128,12 +127,11 @@ if menu == "Dashboard":
         }
         </style>
     """, unsafe_allow_html=True)
-    # ------------------------------
 
     st.header("📊 Financial Health Dashboard")
     st.write("Your net worth composition based strictly on snapshots from the most recently recorded month.")
 
-    # 1. Grab the Top-Level Latest Snapshots
+    # 1. Grab the Top-Level Latest Snapshots (UPDATED with is_fi_eligible)
     sql_latest_snapshots = """
         WITH MaxMonth AS (
             SELECT DATE_TRUNC('month', MAX(snapshot_date)) as max_month 
@@ -159,6 +157,11 @@ if menu == "Dashboard":
                     THEN (b.balance_or_value * b.exchange_rate_to_inr * -1)
                     ELSE (b.balance_or_value * b.exchange_rate_to_inr)
                 END as value_in_inr,
+                CASE 
+                    WHEN b.entity_type = 'Account' THEN COALESCE(a.is_fi_eligible, true)
+                    WHEN b.entity_type = 'Asset_Liability' THEN COALESCE(al.is_fi_eligible, false)
+                    WHEN b.entity_type = 'Investment' THEN COALESCE(i.is_fi_eligible, true)
+                END as is_fi_eligible,
                 b.snapshot_date,
                 ROW_NUMBER() OVER(PARTITION BY b.entity_type, b.entity_id ORDER BY b.snapshot_date DESC) as rn
             FROM baseline_snapshots b
@@ -172,21 +175,11 @@ if menu == "Dashboard":
     """
     df_snaps = conn.query(sql_latest_snapshots, ttl=0)
     
-    # 2. Grab ALL Historical Data (Moved to the top for KPI calculations)
+    # 2. Grab ALL Historical Data
     sql_history = """
         SELECT 
             b.snapshot_date,
             b.entity_type || '_' || b.entity_id AS unique_entity_id,
-            CASE 
-                WHEN b.entity_type = 'Account' THEN a.account_name
-                WHEN b.entity_type = 'Asset_Liability' THEN al.name
-                WHEN b.entity_type = 'Investment' THEN i.investment_name
-            END as entity_name,
-            CASE 
-                WHEN b.entity_type = 'Account' THEN a.account_type
-                WHEN b.entity_type = 'Asset_Liability' THEN al.category
-                WHEN b.entity_type = 'Investment' THEN i.investment_type
-            END as detailed_category,
             CASE 
                 WHEN b.entity_type = 'Asset_Liability' AND al.type = 'Liability' 
                 THEN (b.balance_or_value * b.exchange_rate_to_inr * -1)
@@ -207,7 +200,10 @@ if menu == "Dashboard":
         latest_month_display = pd.to_datetime(df_snaps['snapshot_date'].iloc[0]).strftime('%b %Y')
         total_nw = df_snaps['value_in_inr'].sum()
         current_assets = df_snaps[df_snaps['value_in_inr'] > 0]['value_in_inr'].sum()
-        current_liabilities = df_snaps[df_snaps['value_in_inr'] < 0]['value_in_inr'].sum() * -1 # Render as a positive debt amount
+        current_liabilities = df_snaps[df_snaps['value_in_inr'] < 0]['value_in_inr'].sum() * -1
+        
+        # --- NEW: Calculate FI Wealth ---
+        fi_wealth = df_snaps[df_snaps['is_fi_eligible'] == True]['value_in_inr'].sum()
         
         # Determine MoM and YoY Trends
         yoy_pct_str, yoy_val_str = "N/A", None
@@ -225,26 +221,24 @@ if menu == "Dashboard":
             
             latest_period = df_pivot.index.max()
             
-            # Month-over-Month calculation (Strictly looks 1 month back)
+            # Month-over-Month
             prev_period = latest_period - 1
             if prev_period in df_pivot.index:
                 prev_nw = df_pivot.loc[prev_period, 'Total Net Worth']
                 if prev_nw != 0:
                     mom_pct = ((total_nw - prev_nw) / abs(prev_nw)) * 100
                     mom_pct_str = f"{mom_pct:,.2f}%"
-                    mom_val_str = f"₹ {(total_nw - prev_nw):,.2f}"
                     
-            # Year-over-Year calculation (Strictly looks 12 months back)
+            # Year-over-Year
             prev_year_period = latest_period - 12
             if prev_year_period in df_pivot.index:
                 prev_yr_nw = df_pivot.loc[prev_year_period, 'Total Net Worth']
                 if prev_yr_nw != 0:
                     yoy_pct = ((total_nw - prev_yr_nw) / abs(prev_yr_nw)) * 100
                     yoy_pct_str = f"{yoy_pct:,.2f}%"
-                    yoy_val_str = f"₹ {(total_nw - prev_yr_nw):,.2f}"
 
         # ---------------------------------------------------------
-        # TOP ROW: 5-Column Key Metrics (Indian Format)
+        # TOP ROW: 5-Column Key Metrics
         # ---------------------------------------------------------
         st.subheader("Key Metrics")
         col1, col2, col3, col4, col5 = st.columns(5)
@@ -253,7 +247,6 @@ if menu == "Dashboard":
         col2.metric("Current Liabilities", format_inr(current_liabilities))
         col3.metric(f"Net Worth ({latest_month_display})", format_inr(total_nw))
         
-        # For YoY and MoM deltas, we format the delta values using the helper too
         yoy_delta_str = format_inr(total_nw - prev_yr_nw) if 'prev_yr_nw' in locals() and prev_yr_nw != 0 else None
         mom_delta_str = format_inr(total_nw - prev_nw) if 'prev_nw' in locals() and prev_nw != 0 else None
 
@@ -261,6 +254,42 @@ if menu == "Dashboard":
         col5.metric("MoM NW Growth", mom_pct_str, delta=mom_delta_str)
         
         st.divider()
+        
+        # ---------------------------------------------------------
+        # NEW ROW: Financial Independence (FI) Progress
+        # ---------------------------------------------------------
+        st.subheader("🚀 Financial Independence Progress")
+        
+        # Fetch Target FI Number
+        df_goals = conn.query("SELECT annual_expenses, safe_withdrawal_rate FROM financial_goals LIMIT 1", ttl=0)
+        
+        if not df_goals.empty:
+            target_expenses = float(df_goals.iloc[0]['annual_expenses'])
+            swr = float(df_goals.iloc[0]['safe_withdrawal_rate'])
+            
+            if swr > 0:
+                target_fi_number = target_expenses / (swr / 100)
+                fi_progress_pct = (fi_wealth / target_fi_number) if target_fi_number > 0 else 0
+                # Cap the progress bar at 1.0 (100%) so Streamlit doesn't throw an error if you surpass it!
+                progress_bar_val = min(fi_progress_pct, 1.0)
+                
+                col_fi1, col_fi2, col_fi3 = st.columns([1, 1, 2])
+                col_fi1.metric("Eligible FI Wealth", format_inr(fi_wealth))
+                col_fi2.metric("Target FI Number", format_inr(target_fi_number))
+                
+                with col_fi3:
+                    st.write(f"**{fi_progress_pct * 100:,.1f}%** towards your goal")
+                    st.progress(progress_bar_val)
+                    if fi_wealth < target_fi_number:
+                        st.caption(f"{format_inr(target_fi_number - fi_wealth)} remaining to reach true FI.")
+                    else:
+                        st.success("🎉 You have reached your FI Target!")
+        else:
+            st.info("Set up your Target Expenses in the 'Financial Goals' module to track FI Progress here.")
+
+        st.divider()
+
+        # ... [Rest of your Dashboard code continues below (Historical Trend, Donut Chart, etc.)] ...
 
         # ---------------------------------------------------------
         # Historical Net Worth Trend (Area Chart)
