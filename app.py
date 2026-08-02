@@ -897,5 +897,5 @@ elif menu == "Financial Goals":
                     st.success("Financial goals updated successfully!")
                     time.sleep(1)
                     st.rerun()
-        else:
-            st.error("Financial goals table is empty or missing. Please run the SQL setup script.")
+    else:
+        st.error("Financial goals table is empty or missing. Please run the SQL setup script.")
