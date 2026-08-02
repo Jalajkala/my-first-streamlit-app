@@ -135,7 +135,7 @@ elif menu == "Assets & Liabilities":
                 item_type = st.radio("Classification", ["Asset", "Liability"], horizontal=True)
                 currency = st.selectbox("Valuation Currency", ["INR", "THB", "EUR", "USD"])
             with col2:
-                category = st.selectbox("Category", ["Real Estate", "Vehicle", "Home Loan", "Personal Loan", "Jewelry", "Other"])
+                category = st.selectbox("Category", ["Real Estate", "Vehicle", "Home Loan","Car Loan", "Personal Loan", "Jewelry", "Other"])
                 is_active = st.checkbox("Active", value=True)
                 
             if st.form_submit_button("Save Item"):
