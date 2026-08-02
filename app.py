@@ -120,12 +120,16 @@ if menu == "Dashboard":
                 color_discrete_sequence=['#00b4d8'] # A nice financial blue color
             )
             
-            # Clean up the chart UI
+            # Clean up the chart UI and format X-axis to Month-Year
             fig.update_layout(
-                xaxis_title="Date",
+                xaxis_title="", # Removed title to keep it clean, the dates speak for themselves
                 yaxis_title="Net Worth (INR)",
                 margin=dict(l=0, r=0, t=10, b=0),
-                yaxis_tickformat="₹,.0f" # Format the Y-axis numbers as Rupees
+                yaxis_tickformat="₹,.0f", # Format the Y-axis numbers as Rupees
+                xaxis=dict(
+                    tickformat="%b %Y",   # Formats ticks as 'Aug 2026', 'Sep 2026', etc.
+                    dtick="M1"            # Forces Plotly to place a tick mark exactly every 1 month
+                )
             )
             # Fill the container completely
             st.plotly_chart(fig, use_container_width=True)
