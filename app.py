@@ -412,55 +412,55 @@ if menu == "Dashboard":
                 )
 
 # ==========================================
-    # MODULE 1: ACCOUNTS
-    # ==========================================
-    elif menu == "Accounts":
-        st.header("🏦 Bank & Liquid Accounts")
-        tab1, tab2 = st.tabs(["➕ Add New Account", "📋 View Existing Accounts"])
+# MODULE 1: ACCOUNTS
+# ==========================================
+elif menu == "Accounts":
+    st.header("🏦 Bank & Liquid Accounts")
+    tab1, tab2 = st.tabs(["➕ Add New Account", "📋 View Existing Accounts"])
 
-        with tab1:
-            with st.form("add_account_form", clear_on_submit=True):
-                col1, col2 = st.columns(2)
-                with col1:
-                    account_name = st.text_input("Account Name", placeholder="e.g., Kasikorn Savings, SBI NRE...")
-                    currency = st.selectbox("Base Currency", ["INR", "THB", "EUR", "USD", "GBP"])
-                with col2:
-                    account_type = st.selectbox("Account Type", ["Checking", "Savings", "Brokerage", "Cash", "Digital Wallet", "Other"])
-                    is_active = st.checkbox("Account is Active", value=True)
-                    # --- NEW: Added FI Checkbox ---
-                    is_fi = st.checkbox("Count towards FI Wealth", value=True, help="Include this account in your Financial Independence calculations")
+    with tab1:
+        with st.form("add_account_form", clear_on_submit=True):
+            col1, col2 = st.columns(2)
+            with col1:
+                account_name = st.text_input("Account Name", placeholder="e.g., Kasikorn Savings, SBI NRE...")
+                currency = st.selectbox("Base Currency", ["INR", "THB", "EUR", "USD", "GBP"])
+            with col2:
+                account_type = st.selectbox("Account Type", ["Checking", "Savings", "Brokerage", "Cash", "Digital Wallet", "Other"])
+                is_active = st.checkbox("Account is Active", value=True)
+                # --- NEW: Added FI Checkbox ---
+                is_fi = st.checkbox("Count towards FI Wealth", value=True, help="Include this account in your Financial Independence calculations")
                     
-                if st.form_submit_button("Save Account"):
-                    if account_name:
-                        with conn.session as s:
-                            # --- UPDATED: Added is_fi_eligible to INSERT statement ---
-                            sql = text("""
-                                INSERT INTO accounts (account_name, account_type, currency, is_active, is_fi_eligible) 
-                                VALUES (:name, :type, :currency, :active, :fi);
-                            """)
-                            s.execute(sql, {
-                                "name": account_name, 
-                                "type": account_type, 
-                                "currency": currency, 
-                                "active": is_active, 
-                                "fi": is_fi
-                            })
-                            s.commit()
-                        st.success(f"Successfully added account: {account_name}")
+            if st.form_submit_button("Save Account"):
+                if account_name:
+                    with conn.session as s:
+                        # --- UPDATED: Added is_fi_eligible to INSERT statement ---
+                        sql = text("""
+                            INSERT INTO accounts (account_name, account_type, currency, is_active, is_fi_eligible) 
+                            VALUES (:name, :type, :currency, :active, :fi);
+                        """)
+                        s.execute(sql, {
+                            "name": account_name, 
+                            "type": account_type, 
+                            "currency": currency, 
+                            "active": is_active, 
+                            "fi": is_fi
+                        })
+                        s.commit()
+                    st.success(f"Successfully added account: {account_name}")
 
-        with tab2:
-            df_accounts = conn.query("SELECT * FROM accounts ORDER BY id DESC;", ttl=0)
+    with tab2:
+        df_accounts = conn.query("SELECT * FROM accounts ORDER BY id DESC;", ttl=0)
             
-            # --- UPDATED: Configured column to show FI status cleanly ---
-            st.dataframe(
-                df_accounts, 
-                use_container_width=True, 
-                hide_index=True,
-                column_config={
-                    "is_active": "Active",
-                    "is_fi_eligible": "FI Eligible"
-                }
-            )
+        # --- UPDATED: Configured column to show FI status cleanly ---
+        st.dataframe(
+            df_accounts, 
+            use_container_width=True, 
+            hide_index=True,
+            column_config={
+                "is_active": "Active",
+                "is_fi_eligible": "FI Eligible"
+            }
+        )
 
 # ==========================================
 # MODULE 2: ASSETS & LIABILITIES
