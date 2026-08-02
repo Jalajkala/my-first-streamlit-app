@@ -25,7 +25,6 @@ if menu == "Dashboard":
     st.write("Your net worth composition based strictly on snapshots from the most recently recorded month.")
 
     # 1. Grab the Top-Level KPIs (STRICT MONTHLY BOUNDARY)
-    # We find the latest month that has data, and ONLY pull snapshots from that month.
     sql_latest_snapshots = """
         WITH MaxMonth AS (
             SELECT DATE_TRUNC('month', MAX(snapshot_date)) as max_month 
@@ -39,6 +38,11 @@ if menu == "Dashboard":
                     WHEN b.entity_type = 'Asset_Liability' THEN al.name
                     WHEN b.entity_type = 'Investment' THEN i.investment_name
                 END as entity_name,
+                CASE 
+                    WHEN b.entity_type = 'Account' THEN a.account_type
+                    WHEN b.entity_type = 'Asset_Liability' THEN al.category
+                    WHEN b.entity_type = 'Investment' THEN i.investment_type
+                END as detailed_category,
                 b.balance_or_value,
                 b.exchange_rate_to_inr,
                 CASE 
@@ -62,7 +66,6 @@ if menu == "Dashboard":
     if df_snaps.empty:
         st.info("No snapshot data available to generate the dashboard. Please add baseline snapshots first.")
     else:
-        # Calculate Top Level KPIs
         total_nw = df_snaps['value_in_inr'].sum()
         total_items = len(df_snaps)
         
@@ -71,11 +74,9 @@ if menu == "Dashboard":
         df_tx_count = conn.query(sql_tx_count, ttl=0)
         tx_count = df_tx_count.iloc[0]['count'] if not df_tx_count.empty else 0
 
-        # Render KPI Cards
         st.subheader("Key Metrics")
         col1, col2, col3 = st.columns(3)
         
-        # Format the display to show which month we are looking at
         latest_month_display = pd.to_datetime(df_snaps['snapshot_date'].iloc[0]).strftime('%b %Y')
         col1.metric(f"Net Worth ({latest_month_display})", f"₹ {total_nw:,.2f}")
         col2.metric("Entities Logged This Month", f"{total_items}")
@@ -84,7 +85,7 @@ if menu == "Dashboard":
         st.divider()
 
         # ---------------------------------------------------------
-        # Historical Net Worth Trend (Area Chart) - STRICT MONTHLY
+        # Historical Net Worth Trend (Area Chart)
         # ---------------------------------------------------------
         st.subheader("Historical Net Worth Trend")
         
@@ -104,63 +105,70 @@ if menu == "Dashboard":
         df_all_snaps = conn.query(sql_history, ttl=0)
 
         if not df_all_snaps.empty:
-            # Convert string dates to actual datetime objects
             df_all_snaps['snapshot_date'] = pd.to_datetime(df_all_snaps['snapshot_date'])
-            # Group by Year-Month period (e.g., '2026-08')
             df_all_snaps['month_period'] = df_all_snaps['snapshot_date'].dt.to_period('M')
             
-            # Pivot the data by month instead of exact date
-            # Notice we removed .ffill() entirely!
             df_pivot = df_all_snaps.pivot_table(
                 index='month_period', 
                 columns='unique_entity_id', 
                 values='value_in_inr',
-                aggfunc='last' # If you accidentally log the same account twice in one month, it takes the last one
-            ).fillna(0) # If an account wasn't logged this month, it evaluates to 0
+                aggfunc='last'
+            ).fillna(0) 
             
-            # Sum all columns horizontally for that month's total
             df_pivot['Total Net Worth'] = df_pivot.sum(axis=1)
             df_trend = df_pivot.reset_index()
-            
-            # Convert period back to timestamp so Plotly can render it on an axis
             df_trend['chart_date'] = df_trend['month_period'].dt.to_timestamp()
 
             import plotly.express as px
-            fig = px.area(
+            fig_area = px.area(
                 df_trend, 
                 x='chart_date', 
                 y='Total Net Worth', 
                 color_discrete_sequence=['#00b4d8']
             )
             
-            fig.update_layout(
+            fig_area.update_layout(
                 xaxis_title="",
                 yaxis_title="Net Worth (INR)",
                 margin=dict(l=0, r=0, t=10, b=0),
                 yaxis_tickformat="₹,.0f",
-                xaxis=dict(
-                    tickformat="%b %Y",
-                    dtick="M1"
-                )
+                xaxis=dict(tickformat="%b %Y", dtick="M1")
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig_area, use_container_width=True)
 
         st.divider()
 
-        # Render original bottom charts
-        col_chart1, col_chart2 = st.columns(2)
-        with col_chart1:
-            st.subheader(f"Composition ({latest_month_display})")
-            df_grouped = df_snaps.groupby('entity_type')['value_in_inr'].sum().reset_index()
-            df_grouped['entity_type'] = df_grouped['entity_type'].replace({
-                'Account': 'Liquid Accounts', 'Asset_Liability': 'Assets & Liabilities', 'Investment': 'Investments'
-            })
-            st.bar_chart(df_grouped, x="entity_type", y="value_in_inr")
+        # ---------------------------------------------------------
+        # True Asset Allocation (Donut Chart)
+        # ---------------------------------------------------------
+        st.subheader(f"Asset Allocation Breakdown ({latest_month_display})")
+        
+        # Filter strictly for positive assets to render the pie chart
+        df_assets = df_snaps[df_snaps['value_in_inr'] > 0]
+        
+        if not df_assets.empty:
+            # Group by our new detailed_category
+            df_grouped_assets = df_assets.groupby('detailed_category')['value_in_inr'].sum().reset_index()
             
-        with col_chart2:
-            st.subheader(f"Top 5 Holdings ({latest_month_display})")
-            df_top = df_snaps.reindex(df_snaps.value_in_inr.abs().sort_values(ascending=False).index).head(5)
-            st.bar_chart(df_top, x="entity_name", y="value_in_inr")
+            fig_donut = px.pie(
+                df_grouped_assets, 
+                values='value_in_inr', 
+                names='detailed_category', 
+                hole=0.6, # This creates the "Donut" effect
+                color_discrete_sequence=px.colors.sequential.Teal
+            )
+            
+            # Put labels inside the slices for a cleaner look
+            fig_donut.update_traces(textposition='inside', textinfo='percent+label')
+            fig_donut.update_layout(
+                margin=dict(l=0, r=0, t=10, b=10),
+                showlegend=False 
+            )
+            
+            # By default, Streamlit will center this since we removed the columns
+            st.plotly_chart(fig_donut, use_container_width=True)
+        else:
+            st.info("No positive assets logged this month to calculate allocation.")
 
 # ==========================================
 # MODULE 1: ACCOUNTS
