@@ -128,7 +128,7 @@ if menu == "Dashboard":
         </style>
     """, unsafe_allow_html=True)
 
-    # Dashboard Header with Export Button Layout
+    # Dashboard Header with Export Layout
     col_head, col_btn = st.columns([4, 1])
     
     with col_head:
@@ -136,7 +136,7 @@ if menu == "Dashboard":
         st.write("Your net worth composition based strictly on snapshots from the most recently recorded month.")
         
     with col_btn:
-        # Inject the Print CSS and JS Trigger Button
+        # Inject the Print CSS and a sleek Helper Badge
         st.markdown("""
             <style>
             /* CSS applied ONLY when generating the PDF */
@@ -145,34 +145,29 @@ if menu == "Dashboard":
                 [data-testid="stSidebar"] { display: none !important; }
                 /* Hide the Streamlit header / hamburger menu */
                 header[data-testid="stHeader"] { display: none !important; }
-                /* Hide the export button itself from the final PDF */
+                /* Hide the export hint itself from the final PDF */
                 .hide-on-print { display: none !important; }
                 /* Give the charts more room to breathe on the page */
                 .block-container { padding-top: 2rem !important; }
             }
             
-            /* CSS for the sleek export button */
-            .pdf-btn {
+            /* CSS for the sleek hint badge */
+            .pdf-hint {
                 display: inline-block;
-                background-color: #2e3b4e;
-                color: #ffffff !important;
-                padding: 10px 20px;
+                background-color: transparent;
+                color: #8892b0;
+                padding: 10px 15px;
                 border-radius: 6px;
-                text-decoration: none;
-                font-weight: 600;
+                font-size: 0.85rem;
                 text-align: center;
                 width: 100%;
                 margin-top: 15px;
-                border: 1px solid #4a5d7c;
-                transition: background-color 0.2s;
-            }
-            .pdf-btn:hover { 
-                background-color: #4a5d7c; 
+                border: 1px dashed #4a5d7c;
             }
             </style>
             
-            <div class="hide-on-print">
-                <a href="javascript:window.print()" class="pdf-btn" target="_self">📄 Export to PDF</a>
+            <div class="hide-on-print pdf-hint">
+                📄 <b>To save as PDF:</b><br>Press <code>Ctrl+P</code> (Win) or <code>Cmd+P</code> (Mac)
             </div>
         """, unsafe_allow_html=True)
 
