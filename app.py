@@ -205,29 +205,47 @@ if menu == "Dashboard":
         
         with col_pie:
             if not df_assets.empty:
-                import altair as alt # Altair is built into Streamlit!
+                import altair as alt 
                 
                 df_grouped_assets = df_assets.groupby('detailed_category')['value_in_inr'].sum().reset_index()
+                
+                # Calculate percentages and create a formatted label column
+                total_val = df_grouped_assets['value_in_inr'].sum()
+                df_grouped_assets['label'] = df_grouped_assets.apply(
+                    lambda x: f"{x['detailed_category']} ({(x['value_in_inr']/total_val)*100:.1f}%)", axis=1
+                )
                 
                 # 1. Create a selection parameter to capture clicks
                 click = alt.selection_point(name='click', fields=['detailed_category'])
                 
-                # 2. Build the interactive Altair Donut Chart
-                fig_donut = alt.Chart(df_grouped_assets).mark_arc(innerRadius=65).encode(
-                    theta=alt.Theta(field="value_in_inr", type="quantitative"),
-                    color=alt.Color(field="detailed_category", type="nominal", legend=alt.Legend(title="Type")),
-                    opacity=alt.condition(click, alt.value(1.0), alt.value(0.3)), # Dims the unselected slices!
+                # 2. Define the Base Chart
+                base = alt.Chart(df_grouped_assets).encode(
+                    theta=alt.Theta("value_in_inr:Q", stack=True),
+                    color=alt.Color("detailed_category:N", legend=None) # Hide standard legend
+                )
+
+                # 3. Build the Donut slices
+                donut = base.mark_arc(innerRadius=65).encode(
+                    opacity=alt.condition(click, alt.value(1.0), alt.value(0.3)),
                     tooltip=[
                         alt.Tooltip("detailed_category", title="Category"),
                         alt.Tooltip("value_in_inr", title="Amount (INR)", format=",.2f")
                     ]
                 ).add_params(click)
                 
-                # 3. Render and capture the event
+                # 4. Add the Text Labels outside the slices
+                text = base.mark_text(radiusOffset=20, size=14).encode(
+                    text="label:N",
+                    opacity=alt.condition(click, alt.value(1.0), alt.value(0.3))
+                )
+                
+                # 5. Combine the slices and text layers
+                fig_donut = (donut + text)
+                
+                # 6. Render and capture the event
                 pie_event = st.altair_chart(fig_donut, use_container_width=True, on_select="rerun")
                 
                 selected_category = None
-                # Parse the Altair selection dictionary when a slice is clicked
                 if pie_event and "selection" in pie_event and "click" in pie_event["selection"]:
                     if len(pie_event["selection"]["click"]) > 0:
                         selected_category = pie_event["selection"]["click"][0]["detailed_category"]
