@@ -289,7 +289,7 @@ elif menu == "Investments":
             col1, col2 = st.columns(2)
             with col1:
                 inv_name = st.text_input("Investment Name")
-                inv_type = st.selectbox("Investment Type", ["Mutual Fund", "SIP", "Fixed Deposit", "Stock", "Bonds", "EPF", "PPF", "Other"])
+                inv_type = st.selectbox("Investment Type", ["Mutual Fund", "SIP", "Fixed Deposit", "Recurring Deposit", "Stock", "Bonds", "EPF", "PPF", "Other"])
             with col2:
                 currency = st.selectbox("Currency", ["INR", "THB", "EUR", "USD"])
                 selected_account_label = st.selectbox("Linked Funding Account", list(account_options.keys()))
