@@ -89,7 +89,15 @@ if check_password():
 
     # --- APP NAVIGATION ---
     st.sidebar.title("Navigation")
-    menu = st.sidebar.radio("Go to module:", ["Dashboard", "Accounts", "Assets & Liabilities", "Investments", "Baseline Snapshots", "Transactions"])
+    menu = st.sidebar.radio("Go to module:", [
+        "Dashboard", 
+        "Accounts", 
+        "Assets & Liabilities", 
+        "Investments", 
+        "Baseline Snapshots", 
+        "Transactions",
+        "Financial Goals" # <-- Add this new option
+    ])
 
     # Add a logout button to the bottom of the sidebar
     st.sidebar.divider()
@@ -822,3 +830,62 @@ elif menu == "Transactions":
                     "category": "Category"
                 }
             )
+
+    # ==========================================
+    # MODULE 6: FINANCIAL GOALS (FI TRACKING)
+    # ==========================================
+    elif menu == "Financial Goals":
+        st.header("🎯 Financial Independence (FI) Goals")
+        st.write("Set your target annual expenses and Safe Withdrawal Rate (SWR) to calculate your FI number.")
+
+        # Fetch the current goals from the database
+        df_goals = conn.query("SELECT * FROM financial_goals LIMIT 1", ttl=0)
+        
+        if not df_goals.empty:
+            current_expenses = float(df_goals.iloc[0]['annual_expenses'])
+            current_swr = float(df_goals.iloc[0]['safe_withdrawal_rate'])
+            
+            # Calculate the current target FI Number
+            # FI Number = Annual Expenses / (SWR / 100)
+            target_fi_number = current_expenses / (current_swr / 100)
+            
+            st.subheader("Your FI Target")
+            st.metric("Financial Independence Number", format_inr(target_fi_number))
+            st.divider()
+
+            with st.form("update_goals_form"):
+                st.subheader("Adjust Goal Parameters")
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    new_expenses = st.number_input(
+                        "Target Annual Expenses (INR)", 
+                        min_value=0.0, 
+                        value=current_expenses, 
+                        step=50000.0,
+                        help="How much money do you need per year to live comfortably in retirement?"
+                    )
+                with col2:
+                    new_swr = st.number_input(
+                        "Safe Withdrawal Rate (%)", 
+                        min_value=1.0, 
+                        max_value=10.0, 
+                        value=current_swr, 
+                        step=0.25,
+                        help="The standard Trinity Study rate is 4.0%. A more conservative rate is 3.5% or 3.0%."
+                    )
+                
+                if st.form_submit_button("Update FI Goals"):
+                    with conn.session as s:
+                        sql = text("""
+                            UPDATE financial_goals 
+                            SET annual_expenses = :exp, safe_withdrawal_rate = :swr, last_updated = CURRENT_TIMESTAMP
+                            WHERE id = 1
+                        """)
+                        s.execute(sql, {"exp": new_expenses, "swr": new_swr})
+                        s.commit()
+                    st.success("Financial goals updated successfully!")
+                    time.sleep(1)
+                    st.rerun()
+        else:
+            st.error("Financial goals table is empty or missing. Please run the SQL setup script.")
