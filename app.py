@@ -829,7 +829,6 @@ elif menu == "Transactions":
                     "amount_received": st.column_config.NumberColumn("Received", format="%.2f"),
                     "category": "Category"
                 }
-            )
 
     # ==========================================
     # MODULE 6: FINANCIAL GOALS (FI TRACKING)
@@ -889,3 +888,4 @@ elif menu == "Transactions":
                     st.rerun()
         else:
             st.error("Financial goals table is empty or missing. Please run the SQL setup script.")
+            )
