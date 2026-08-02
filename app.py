@@ -520,7 +520,6 @@ elif menu == "Baseline Snapshots":
     st.header("📸 Baseline Snapshots")
     st.write("Record starting balances or point-in-time valuations to track your net worth in INR.")
     
-    # We now have THREE tabs
     tab1, tab2, tab3 = st.tabs(["➕ Add Snapshot", "📋 View Snapshots", "✏️ Edit / Delete Snapshot"])
 
     with tab1:
@@ -583,34 +582,72 @@ elif menu == "Baseline Snapshots":
             ORDER BY b.snapshot_date DESC, b.id DESC;
         """
         df_snap = conn.query(sql_view, ttl=0)
+        
         if df_snap.empty:
             st.info("No snapshots found.")
         else:
-            st.dataframe(df_snap, use_container_width=True, hide_index=True,
+            # Convert to datetime to extract Month and Year dynamically
+            df_snap['snapshot_date'] = pd.to_datetime(df_snap['snapshot_date'])
+            df_snap['month_year'] = df_snap['snapshot_date'].dt.strftime('%B %Y') # e.g., "August 2026"
+            
+            # Get a unique, sorted list of available months from the data
+            available_months = df_snap.sort_values('snapshot_date', ascending=False)['month_year'].unique().tolist()
+            
+            # Create the filter UI element
+            col_filter, col_spacer = st.columns([2, 2])
+            with col_filter:
+                selected_month_filter = st.selectbox("Filter by Month & Year", ["All Time"] + available_months)
+                
+            # Apply the filter if something other than "All Time" is selected
+            if selected_month_filter != "All Time":
+                df_filtered = df_snap[df_snap['month_year'] == selected_month_filter]
+            else:
+                df_filtered = df_snap
+                
+            st.write(f"Showing **{len(df_filtered)}** record(s)")
+            
+            # Drop our helper columns before rendering the dataframe
+            st.dataframe(
+                df_filtered.drop(columns=['month_year']), use_container_width=True, hide_index=True,
                 column_config={
                     "snapshot_date": "Date", "entity_type": "Category", "entity_name": "Item Name",
                     "balance_or_value": st.column_config.NumberColumn("Local Value", format="%.2f"),
                     "exchange_rate_to_inr": st.column_config.NumberColumn("FX to INR", format="%.4f"),
-                    "value_in_inr": st.column_config.NumberColumn("INR Equivalent", format="₹%.2f")
+                    "value_in_inr": st.column_config.NumberColumn("INR Equivalent", format="₹%.2f"),
+                    "notes": "Notes"
                 }
             )
             
     with tab3:
         st.subheader("Modify or Remove a Snapshot")
-        # Reuse the rich view so we can display the actual item name in the dropdown
-        df_edit_snap = conn.query(sql_view, ttl=0)
+        sql_edit_view = """
+            SELECT 
+                b.id, b.snapshot_date, b.entity_type, 
+                CASE 
+                    WHEN b.entity_type = 'Account' THEN a.account_name
+                    WHEN b.entity_type = 'Asset_Liability' THEN al.name
+                    WHEN b.entity_type = 'Investment' THEN i.investment_name
+                END as entity_name,
+                b.balance_or_value, b.exchange_rate_to_inr,
+                (b.balance_or_value * b.exchange_rate_to_inr) as value_in_inr, b.notes
+            FROM baseline_snapshots b
+            LEFT JOIN accounts a ON b.entity_type = 'Account' AND b.entity_id = a.id
+            LEFT JOIN assets_liabilities al ON b.entity_type = 'Asset_Liability' AND b.entity_id = al.id
+            LEFT JOIN investments i ON b.entity_type = 'Investment' AND b.entity_id = i.id
+            ORDER BY b.snapshot_date DESC, b.id DESC;
+        """
+        df_edit_snap = conn.query(sql_edit_view, ttl=0)
         
         if not df_edit_snap.empty:
-            snap_options = {f"{row['snapshot_date']} - {row['entity_name']} (ID: {row['id']})": row['id'] for _, row in df_edit_snap.iterrows()}
+            snap_options = {f"{row['snapshot_date'].strftime('%Y-%m-%d')} - {row['entity_name']} (ID: {row['id']})": row['id'] for _, row in df_edit_snap.iterrows()}
             selected_snap_label = st.selectbox("Select Snapshot to Modify", list(snap_options.keys()))
             selected_id = snap_options[selected_snap_label]
             
-            # Re-fetch the raw data for editing
             current_data = conn.query(f"SELECT * FROM baseline_snapshots WHERE id = {selected_id}", ttl=0).iloc[0]
             
             with st.form("edit_snapshot_form"):
                 action = st.radio("Choose Action", ["Update Record", "Delete Record"], horizontal=True)
-                st.write(f"**Editing Snapshot for:** {selected_snap_label.split(' (')[0]}")
+                st.write(f"**Editing Snapshot:** {selected_snap_label}")
                 
                 col1, col2 = st.columns(2)
                 with col1:
@@ -629,7 +666,7 @@ elif menu == "Baseline Snapshots":
                         time.sleep(1)
                         st.rerun()
                         
-                    elif action == "Update Record":
+                    elif action == "UpdateRecord":
                         with conn.session as s:
                             sql = text("""
                                 UPDATE baseline_snapshots 
