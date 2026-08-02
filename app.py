@@ -82,7 +82,7 @@ if check_password():
     
     # --- EVERYTHING BELOW THIS LINE IS YOUR EXISTING APP CODE ---
     
-    st.title("🏦 Finealth: Financial Health Tracker")
+    st.title("🏦 Finealth: Our Financial Health Tracker")
 
     # Connect to the Neon PostgreSQL Database
     conn = st.connection("postgresql", type="sql")
@@ -128,7 +128,7 @@ if menu == "Dashboard":
         </style>
     """, unsafe_allow_html=True)
 
-    st.header("📊 Financial Health Dashboard")
+    st.header("📊 RuJal's Financial Health Dashboard")
     st.write("Your net worth composition based strictly on snapshots from the most recently recorded month.")
 
     # 1. Grab the Top-Level Latest Snapshots (UPDATED with is_fi_eligible)
@@ -268,7 +268,7 @@ if menu == "Dashboard":
         # ---------------------------------------------------------
         # NEW ROW: Financial Independence (FI) Progress
         # ---------------------------------------------------------
-        st.subheader("🚀 Financial Independence Progress")
+        st.subheader("🚀 FIRE Progress")
         
         # Fetch Target FI Number
         df_goals = conn.query("SELECT annual_expenses, safe_withdrawal_rate FROM financial_goals LIMIT 1", ttl=0)
@@ -288,7 +288,7 @@ if menu == "Dashboard":
                 col_fi2.metric("Target FI Number", format_inr(target_fi_number))
                 
                 with col_fi3:
-                    st.write(f"**{fi_progress_pct * 100:,.1f}%** towards your goal")
+                    st.write(f"**{fi_progress_pct * 100:,.1f}%** goal achieved")
                     st.progress(progress_bar_val)
                     if fi_wealth < target_fi_number:
                         st.caption(f"{format_inr(target_fi_number - fi_wealth)} remaining to reach true FI.")
