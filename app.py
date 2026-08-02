@@ -9,6 +9,35 @@ import plotly.express as px
 # 1. PAGE CONFIG MUST BE THE VERY FIRST STREAMLIT COMMAND
 st.set_page_config(page_title="Finealth Dashboard", page_icon="🏦", layout="wide")
 
+
+# INDIAN CURRENCY FORMATTER FUNCTION
+
+def format_inr(amount):
+    """Converts a numeric value into the Indian numbering format (e.g., ₹12,34,567.89)"""
+    if pd.isna(amount):
+        return "₹0.00"
+    
+    sign = "-" if amount < 0 else ""
+    val_str = f"{abs(amount):.2f}"
+    int_part, dec_part = val_str.split(".")
+    
+    if len(int_part) <= 3:
+        formatted_int = int_part
+    else:
+        last_three = int_part[-3:]
+        remaining = int_part[:-3]
+        
+        chunks = []
+        while len(remaining) > 2:
+            chunks.insert(0, remaining[-2:])
+            remaining = remaining[:-2]
+        if remaining:
+            chunks.insert(0, remaining)
+            
+        formatted_int = ",".join(chunks) + "," + last_three
+        
+    return f"₹{sign}{formatted_int}.{dec_part}"
+
 # 2. DEFINE THE AUTHENTICATION FUNCTION
 def check_password():
     """Returns `True` if the user had the correct password."""
@@ -207,18 +236,21 @@ if menu == "Dashboard":
                     yoy_val_str = f"₹ {(total_nw - prev_yr_nw):,.2f}"
 
         # ---------------------------------------------------------
-        # NEW TOP ROW: 5-Column Key Metrics
+        # TOP ROW: 5-Column Key Metrics (Indian Format)
         # ---------------------------------------------------------
         st.subheader("Key Metrics")
         col1, col2, col3, col4, col5 = st.columns(5)
         
-        col1.metric("Current Assets", f"₹ {current_assets:,.2f}")
-        col2.metric("Current Liabilities", f"₹ {current_liabilities:,.2f}")
-        col3.metric(f"Net Worth ({latest_month_display})", f"₹ {total_nw:,.2f}")
+        col1.metric("Current Assets", format_inr(current_assets))
+        col2.metric("Current Liabilities", format_inr(current_liabilities))
+        col3.metric(f"Net Worth ({latest_month_display})", format_inr(total_nw))
         
-        # Streamlit automatically colors the 'delta' green/red and adds the arrow
-        col4.metric("YoY NW Growth", yoy_pct_str, delta=yoy_val_str)
-        col5.metric("MoM NW Growth", mom_pct_str, delta=mom_val_str)
+        # For YoY and MoM deltas, we format the delta values using the helper too
+        yoy_delta_str = format_inr(total_nw - prev_yr_nw) if 'prev_yr_nw' in locals() and prev_yr_nw != 0 else None
+        mom_delta_str = format_inr(total_nw - prev_nw) if 'prev_nw' in locals() and prev_nw != 0 else None
+
+        col4.metric("YoY NW Growth", yoy_pct_str, delta=yoy_delta_str)
+        col5.metric("MoM NW Growth", mom_pct_str, delta=mom_delta_str)
         
         st.divider()
 
