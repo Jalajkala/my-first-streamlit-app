@@ -145,37 +145,46 @@ if menu == "Dashboard":
         st.divider()
 
         # ---------------------------------------------------------
-        # Interactive Asset Allocation (Pie + Table)
+        # Interactive Asset Allocation (Donut + Table)
         # ---------------------------------------------------------
         st.subheader(f"Asset Allocation ({latest_month_display})")
         df_assets = df_snaps[df_snaps['value_in_inr'] > 0]
         
-        # Split the screen: Chart on left, Table on right
         col_pie, col_ast_table = st.columns([1.2, 1])
         
         with col_pie:
             if not df_assets.empty:
-                df_grouped_assets = df_assets.groupby('detailed_category')['value_in_inr'].sum().reset_index()
-                fig_donut = px.pie(
-                    df_grouped_assets, values='value_in_inr', names='detailed_category', 
-                    hole=0.6, color_discrete_sequence=px.colors.sequential.Teal
-                )
-                fig_donut.update_traces(textposition='inside', textinfo='percent+label')
-                fig_donut.update_layout(margin=dict(l=0, r=0, t=10, b=10), showlegend=False)
+                import altair as alt # Altair is built into Streamlit!
                 
-                # capture the selection event!
-                pie_event = st.plotly_chart(fig_donut, use_container_width=True, on_select="rerun")
+                df_grouped_assets = df_assets.groupby('detailed_category')['value_in_inr'].sum().reset_index()
+                
+                # 1. Create a selection parameter to capture clicks
+                click = alt.selection_point(name='click', fields=['detailed_category'])
+                
+                # 2. Build the interactive Altair Donut Chart
+                fig_donut = alt.Chart(df_grouped_assets).mark_arc(innerRadius=65).encode(
+                    theta=alt.Theta(field="value_in_inr", type="quantitative"),
+                    color=alt.Color(field="detailed_category", type="nominal", legend=alt.Legend(title="Type")),
+                    opacity=alt.condition(click, alt.value(1.0), alt.value(0.3)), # Dims the unselected slices!
+                    tooltip=[
+                        alt.Tooltip("detailed_category", title="Category"),
+                        alt.Tooltip("value_in_inr", title="Amount (INR)", format=",.2f")
+                    ]
+                ).add_params(click)
+                
+                # 3. Render and capture the event
+                pie_event = st.altair_chart(fig_donut, use_container_width=True, on_select="rerun")
                 
                 selected_category = None
-                if pie_event and "selection" in pie_event and pie_event["selection"]["points"]:
-                    point_idx = pie_event["selection"]["points"][0]["pointIndex"]
-                    selected_category = df_grouped_assets.iloc[point_idx]['detailed_category']
+                # Parse the Altair selection dictionary when a slice is clicked
+                if pie_event and "selection" in pie_event and "click" in pie_event["selection"]:
+                    if len(pie_event["selection"]["click"]) > 0:
+                        selected_category = pie_event["selection"]["click"][0]["detailed_category"]
             else:
                 st.info("No positive assets logged this month.")
                 
         with col_ast_table:
             if not df_assets.empty:
-                # Filter the dataframe based on the clicked pie slice
                 if selected_category:
                     st.write(f"**Selected:** {selected_category}")
                     display_df = df_assets[df_assets['detailed_category'] == selected_category]
