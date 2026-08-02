@@ -16,13 +16,13 @@ st.sidebar.title("Navigation")
 menu = st.sidebar.radio("Go to module:", ["Dashboard", "Accounts", "Assets & Liabilities", "Investments", "Baseline Snapshots", "Transactions"])
 
 # ==========================================
-# MODULE 0: DASHBOARD (NEW)
+# MODULE 0: DASHBOARD
 # ==========================================
 if menu == "Dashboard":
     st.header("📊 Financial Health Dashboard")
     st.write("Your net worth composition based on your latest recorded snapshots.")
 
-    # Complex SQL to grab ONLY the most recent snapshot for every individual entity
+    # UPDATED SQL: Added a CASE statement to multiply Liabilities by -1
     sql_latest_snapshots = """
         WITH RankedSnapshots AS (
             SELECT 
@@ -34,7 +34,11 @@ if menu == "Dashboard":
                 END as entity_name,
                 b.balance_or_value,
                 b.exchange_rate_to_inr,
-                (b.balance_or_value * b.exchange_rate_to_inr) as value_in_inr,
+                CASE 
+                    WHEN b.entity_type = 'Asset_Liability' AND al.type = 'Liability' 
+                    THEN (b.balance_or_value * b.exchange_rate_to_inr * -1)
+                    ELSE (b.balance_or_value * b.exchange_rate_to_inr)
+                END as value_in_inr,
                 b.snapshot_date,
                 ROW_NUMBER() OVER(PARTITION BY b.entity_type, b.entity_id ORDER BY b.snapshot_date DESC) as rn
             FROM baseline_snapshots b
@@ -53,7 +57,7 @@ if menu == "Dashboard":
         total_nw = df_snaps['value_in_inr'].sum()
         total_items = len(df_snaps)
         
-        # Get count of transactions for the current month to show activity
+        # Get count of transactions for the current month
         current_month = date.today().replace(day=1)
         sql_tx_count = f"SELECT COUNT(*) as count FROM transactions WHERE transaction_date >= '{current_month}'"
         df_tx_count = conn.query(sql_tx_count, ttl=0)
@@ -73,9 +77,7 @@ if menu == "Dashboard":
         
         with col_chart1:
             st.subheader("Net Worth Composition")
-            # Group data by category using Pandas
             df_grouped = df_snaps.groupby('entity_type')['value_in_inr'].sum().reset_index()
-            # Make the labels look nicer
             df_grouped['entity_type'] = df_grouped['entity_type'].replace({
                 'Account': 'Liquid Accounts', 
                 'Asset_Liability': 'Assets & Liabilities', 
@@ -85,8 +87,8 @@ if menu == "Dashboard":
             
         with col_chart2:
             st.subheader("Top 5 Holdings (INR)")
-            # Sort the dataframe by value and grab the top 5
-            df_top = df_snaps.sort_values(by='value_in_inr', ascending=False).head(5)
+            # Sort by absolute value so large debts also show up prominently, but plot the real value
+            df_top = df_snaps.reindex(df_snaps.value_in_inr.abs().sort_values(ascending=False).index).head(5)
             st.bar_chart(df_top, x="entity_name", y="value_in_inr")
 
 # ==========================================
