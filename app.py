@@ -181,6 +181,16 @@ if menu == "Dashboard":
             b.snapshot_date,
             b.entity_type || '_' || b.entity_id AS unique_entity_id,
             CASE 
+                WHEN b.entity_type = 'Account' THEN a.account_name
+                WHEN b.entity_type = 'Asset_Liability' THEN al.name
+                WHEN b.entity_type = 'Investment' THEN i.investment_name
+            END as entity_name,
+            CASE 
+                WHEN b.entity_type = 'Account' THEN a.account_type
+                WHEN b.entity_type = 'Asset_Liability' THEN al.category
+                WHEN b.entity_type = 'Investment' THEN i.investment_type
+            END as detailed_category,
+            CASE 
                 WHEN b.entity_type = 'Asset_Liability' AND al.type = 'Liability' 
                 THEN (b.balance_or_value * b.exchange_rate_to_inr * -1)
                 ELSE (b.balance_or_value * b.exchange_rate_to_inr)
