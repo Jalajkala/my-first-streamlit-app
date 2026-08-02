@@ -12,7 +12,8 @@ conn = st.connection("postgresql", type="sql")
 
 # --- APP NAVIGATION ---
 st.sidebar.title("Navigation")
-menu = st.sidebar.radio("Go to module:", ["Accounts", "Assets & Liabilities", "Investments", "Baseline Snapshots"])
+# Added "Transactions" to the menu
+menu = st.sidebar.radio("Go to module:", ["Accounts", "Assets & Liabilities", "Investments", "Baseline Snapshots", "Transactions"])
 
 # ==========================================
 # MODULE 1: ACCOUNTS
@@ -90,7 +91,7 @@ elif menu == "Investments":
             col1, col2 = st.columns(2)
             with col1:
                 inv_name = st.text_input("Investment Name")
-                inv_type = st.selectbox("Investment Type", ["Mutual Fund", "SIP", "Fixed Deposit", "Stock", "Bonds", "Other"])
+                inv_type = st.selectbox("Investment Type", ["Mutual Fund", "SIP", "Fixed Deposit", "Stock", "Bonds", "EPF", "PPF", "Other"])
             with col2:
                 currency = st.selectbox("Currency", ["INR", "THB", "EUR", "USD"])
                 selected_account_label = st.selectbox("Linked Funding Account", list(account_options.keys()))
@@ -121,10 +122,8 @@ elif menu == "Baseline Snapshots":
     tab1, tab2 = st.tabs(["➕ Add Snapshot", "📋 View Snapshots"])
 
     with tab1:
-        # 1. Step 1: Select the entity type OUTSIDE the form so it dynamically updates the next query
         entity_type = st.selectbox("What are you recording a snapshot for?", ["Account", "Asset_Liability", "Investment"])
         
-        # Fetch the specific items based on the choice above
         if entity_type == "Account":
             df_entities = conn.query("SELECT id, account_name as name, currency FROM accounts WHERE is_active = true", ttl=0)
         elif entity_type == "Asset_Liability":
@@ -134,62 +133,47 @@ elif menu == "Baseline Snapshots":
             
         entity_options = {}
         for _, row in df_entities.iterrows():
-            # Adding the currency in brackets helps you remember which FX rate to use!
             entity_options[f"{row['name']} ({row['currency']})"] = row['id']
 
         if not entity_options:
             st.warning(f"No active {entity_type}s found. Please add one first.")
         else:
-            # 2. Step 2: The actual form
             with st.form("add_snapshot_form", clear_on_submit=True):
                 col1, col2 = st.columns(2)
-                
                 with col1:
                     snapshot_date = st.date_input("Date of Snapshot", value=date.today())
                     selected_entity_label = st.selectbox("Select Item", list(entity_options.keys()))
-                    
                 with col2:
                     balance = st.number_input("Balance or Value (in local currency)", min_value=0.0, format="%.2f")
-                    # Emphasize the INR conversion logic we discussed earlier
                     fx_rate = st.number_input("Exchange Rate to INR (1.0 for INR items)", value=1.0000, format="%.4f")
                 
                 notes = st.text_input("Notes (Optional)", placeholder="e.g., Initial setup, Month-end update")
                     
                 if st.form_submit_button("Save Snapshot"):
                     entity_id = entity_options[selected_entity_label]
-                    
                     with conn.session as s:
                         sql = text("""
                             INSERT INTO baseline_snapshots (snapshot_date, entity_type, entity_id, balance_or_value, exchange_rate_to_inr, notes) 
                             VALUES (:date, :type, :e_id, :balance, :fx, :notes);
                         """)
                         s.execute(sql, {
-                            "date": snapshot_date, 
-                            "type": entity_type, 
-                            "e_id": entity_id, 
-                            "balance": balance,
-                            "fx": fx_rate,
-                            "notes": notes
+                            "date": snapshot_date, "type": entity_type, "e_id": entity_id, 
+                            "balance": balance, "fx": fx_rate, "notes": notes
                         })
                         s.commit()
                     st.success(f"Successfully recorded snapshot for {selected_entity_label}")
 
     with tab2:
-        # A complex SQL query to combine the names from all three separate tables into one unified view
         sql_view = """
             SELECT 
-                b.id, 
-                b.snapshot_date, 
-                b.entity_type, 
+                b.id, b.snapshot_date, b.entity_type, 
                 CASE 
                     WHEN b.entity_type = 'Account' THEN a.account_name
                     WHEN b.entity_type = 'Asset_Liability' THEN al.name
                     WHEN b.entity_type = 'Investment' THEN i.investment_name
                 END as entity_name,
-                b.balance_or_value, 
-                b.exchange_rate_to_inr,
-                (b.balance_or_value * b.exchange_rate_to_inr) as value_in_inr,
-                b.notes
+                b.balance_or_value, b.exchange_rate_to_inr,
+                (b.balance_or_value * b.exchange_rate_to_inr) as value_in_inr, b.notes
             FROM baseline_snapshots b
             LEFT JOIN accounts a ON b.entity_type = 'Account' AND b.entity_id = a.id
             LEFT JOIN assets_liabilities al ON b.entity_type = 'Asset_Liability' AND b.entity_id = al.id
@@ -197,20 +181,111 @@ elif menu == "Baseline Snapshots":
             ORDER BY b.snapshot_date DESC, b.id DESC;
         """
         df_snap = conn.query(sql_view, ttl=0)
-        
         if df_snap.empty:
             st.info("No snapshots found.")
         else:
-            st.dataframe(
-                df_snap, 
-                use_container_width=True, 
-                hide_index=True,
+            st.dataframe(df_snap, use_container_width=True, hide_index=True,
                 column_config={
-                    "snapshot_date": "Date",
-                    "entity_type": "Category",
-                    "entity_name": "Item Name",
+                    "snapshot_date": "Date", "entity_type": "Category", "entity_name": "Item Name",
                     "balance_or_value": st.column_config.NumberColumn("Local Value", format="%.2f"),
                     "exchange_rate_to_inr": st.column_config.NumberColumn("FX to INR", format="%.4f"),
                     "value_in_inr": st.column_config.NumberColumn("INR Equivalent", format="₹%.2f")
+                }
+            )
+
+# ==========================================
+# MODULE 5: TRANSACTIONS
+# ==========================================
+elif menu == "Transactions":
+    st.header("💸 Transaction Ledger")
+    st.write("Log income, expenses, and international transfers across your accounts.")
+    
+    tab1, tab2 = st.tabs(["➕ Add Transaction", "📋 View Ledger"])
+
+    with tab1:
+        # 1. Select the type OUTSIDE the form so it dictates which fields appear inside
+        transaction_type = st.selectbox("Transaction Type", ["Transfer", "Income", "Expense", "Investment_Buy", "Loan_Repayment"])
+        
+        # Fetch active accounts to populate our dropdowns
+        df_active_accounts = conn.query("SELECT id, account_name, currency FROM accounts WHERE is_active = true ORDER BY account_name;", ttl=0)
+        account_options = {"None": None}
+        for _, row in df_active_accounts.iterrows():
+            account_options[f"{row['account_name']} ({row['currency']})"] = row['id']
+
+        with st.form("add_transaction_form", clear_on_submit=True):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                transaction_date = st.date_input("Date", value=date.today())
+                category = st.text_input("Category / Tag", placeholder="e.g., Salary, Rent, SIP Installment, Remittance")
+                
+                # Dynamic Logic: Only show "From Account" if money is leaving an account
+                if transaction_type in ["Transfer", "Expense", "Investment_Buy", "Loan_Repayment"]:
+                    from_account_label = st.selectbox("From Account", list(account_options.keys()))
+                    amount_sent = st.number_input("Amount Sent (Local Currency)", min_value=0.0, format="%.2f")
+                else:
+                    from_account_label = "None"
+                    amount_sent = None
+
+            with col2:
+                notes = st.text_input("Notes", placeholder="Optional reference")
+                
+                # Dynamic Logic: Only show "To Account" if money is entering an account
+                if transaction_type in ["Transfer", "Income"]:
+                    to_account_label = st.selectbox("To Account", list(account_options.keys()))
+                    amount_received = st.number_input("Amount Received (Local Currency)", min_value=0.0, format="%.2f")
+                else:
+                    to_account_label = "None"
+                    amount_received = None
+
+            if st.form_submit_button("Save Transaction"):
+                from_acc_id = account_options[from_account_label] if from_account_label != "None" else None
+                to_acc_id = account_options[to_account_label] if to_account_label != "None" else None
+                
+                with conn.session as s:
+                    sql = text("""
+                        INSERT INTO transactions 
+                        (transaction_date, transaction_type, from_account_id, to_account_id, amount_sent, amount_received, category, notes) 
+                        VALUES (:date, :type, :from_id, :to_id, :sent, :received, :category, :notes);
+                    """)
+                    s.execute(sql, {
+                        "date": transaction_date, "type": transaction_type, 
+                        "from_id": from_acc_id, "to_id": to_acc_id, 
+                        "sent": amount_sent, "received": amount_received, 
+                        "category": category, "notes": notes
+                    })
+                    s.commit()
+                st.success("Successfully logged transaction!")
+
+    with tab2:
+        # Join the accounts table TWICE to get the names for both 'from' and 'to' accounts
+        sql_view = """
+            SELECT 
+                t.id, t.transaction_date, t.transaction_type, 
+                f.account_name AS from_account, t.amount_sent, 
+                to_acc.account_name AS to_account, t.amount_received, 
+                t.category, t.notes 
+            FROM transactions t
+            LEFT JOIN accounts f ON t.from_account_id = f.id
+            LEFT JOIN accounts to_acc ON t.to_account_id = to_acc.id
+            ORDER BY t.transaction_date DESC, t.id DESC;
+        """
+        df_tx = conn.query(sql_view, ttl=0)
+        
+        if df_tx.empty:
+            st.info("No transactions found.")
+        else:
+            st.dataframe(
+                df_tx, 
+                use_container_width=True, 
+                hide_index=True,
+                column_config={
+                    "transaction_date": "Date",
+                    "transaction_type": "Type",
+                    "from_account": "From",
+                    "amount_sent": st.column_config.NumberColumn("Sent", format="%.2f"),
+                    "to_account": "To",
+                    "amount_received": st.column_config.NumberColumn("Received", format="%.2f"),
+                    "category": "Category"
                 }
             )
