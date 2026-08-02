@@ -830,12 +830,12 @@ elif menu == "Transactions":
                     "category": "Category"
                 }
             )
-    # ==========================================
-    # MODULE 6: FINANCIAL GOALS (FI TRACKING)
-    # ==========================================
-    elif menu == "Financial Goals":
-        st.header("🎯 Financial Independence (FI) Goals")
-        st.write("Set your target annual expenses and Safe Withdrawal Rate (SWR) to calculate your FI number.")
+# ==========================================
+# MODULE 6: FINANCIAL GOALS (FI TRACKING)
+# ==========================================
+elif menu == "Financial Goals":
+    st.header("🎯 Financial Independence (FI) Goals")
+    st.write("Set your target annual expenses and Safe Withdrawal Rate (SWR) to calculate your FI number.")
 
         # Fetch the current goals from the database
         df_goals = conn.query("SELECT * FROM financial_goals LIMIT 1", ttl=0)
