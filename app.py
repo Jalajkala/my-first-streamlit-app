@@ -72,6 +72,27 @@ if check_password():
 # MODULE 0: DASHBOARD
 # ==========================================
 if menu == "Dashboard":
+    
+    # --- ADD THIS NEW CSS BLOCK ---
+    st.markdown("""
+        <style>
+        /* Shrink the main metric numbers */
+        [data-testid="stMetricValue"] {
+            font-size: 1.3rem !important;
+            word-wrap: break-word !important;
+        }
+        /* Shrink the smaller delta (percentage) numbers */
+        [data-testid="stMetricDelta"] {
+            font-size: 0.9rem !important;
+        }
+        /* Shrink the metric labels */
+        [data-testid="stMetricLabel"] {
+            font-size: 0.85rem !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    # ------------------------------
+
     st.header("📊 Financial Health Dashboard")
     st.write("Your net worth composition based strictly on snapshots from the most recently recorded month.")
 
