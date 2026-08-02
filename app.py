@@ -262,13 +262,30 @@ if menu == "Dashboard":
             import plotly.express as px
             df_trend = df_pivot.reset_index()
             df_trend['chart_date'] = df_trend['month_period'].dt.to_timestamp()
+            
+            # Use your Indian currency helper for the chart data labels
+            df_trend['formatted_nw'] = df_trend['Total Net Worth'].apply(format_inr)
 
             fig_area = px.area(
-                df_trend, x='chart_date', y='Total Net Worth', color_discrete_sequence=['#00b4d8']
+                df_trend, 
+                x='chart_date', 
+                y='Total Net Worth', 
+                text='formatted_nw', # Passes the formatted Indian currency string
+                color_discrete_sequence=['#00b4d8']
             )
+            
+            # Show data points (markers) and position the text labels above them
+            fig_area.update_traces(
+                mode='lines+markers+text',
+                textposition='top center',
+                textfont=dict(size=11)
+            )
+            
             fig_area.update_layout(
-                xaxis_title="", yaxis_title="Net Worth (INR)",
-                margin=dict(l=0, r=0, t=10, b=0), yaxis_tickformat="₹,.0f",
+                xaxis_title="", 
+                yaxis_title="Net Worth (INR)",
+                margin=dict(l=20, r=20, t=30, b=0), # Added a bit of top margin so labels don't get cut off
+                yaxis_tickformat="₹,.0f",
                 xaxis=dict(tickformat="%b %Y", dtick="M1")
             )
             st.plotly_chart(fig_area, use_container_width=True)
