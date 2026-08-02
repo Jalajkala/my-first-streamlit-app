@@ -3,19 +3,70 @@ import pandas as pd
 from sqlalchemy import text
 from datetime import date
 import time
+import altair as alt
 import plotly.express as px
 
-# Page Configuration
+# 1. PAGE CONFIG MUST BE THE VERY FIRST STREAMLIT COMMAND
 st.set_page_config(page_title="Finealth Dashboard", page_icon="🏦", layout="wide")
-st.title("🏦 Finealth: Financial Health Tracker")
 
-# Connect to the Neon PostgreSQL Database
-conn = st.connection("postgresql", type="sql")
+# 2. DEFINE THE AUTHENTICATION FUNCTION
+def check_password():
+    """Returns `True` if the user had the correct password."""
+    
+    def password_entered():
+        """Checks whether a password entered by the user is correct."""
+        if st.session_state["password_input"] == st.secrets["app_password"]:
+            st.session_state["password_correct"] = True
+            # Delete the password from session state for security
+            del st.session_state["password_input"]  
+        else:
+            st.session_state["password_correct"] = False
 
-# --- APP NAVIGATION ---
-st.sidebar.title("Navigation")
-# Added 'Dashboard' as the default landing page
-menu = st.sidebar.radio("Go to module:", ["Dashboard", "Accounts", "Assets & Liabilities", "Investments", "Baseline Snapshots", "Transactions"])
+    if "password_correct" not in st.session_state:
+        # First run, show input for password.
+        st.title("🔒 Finealth Login")
+        st.text_input(
+            "Please enter your password", 
+            type="password", 
+            on_change=password_entered, 
+            key="password_input"
+        )
+        return False
+    elif not st.session_state["password_correct"]:
+        # Password incorrect, show input + error.
+        st.title("🔒 Finealth Login")
+        st.text_input(
+            "Please enter your password", 
+            type="password", 
+            on_change=password_entered, 
+            key="password_input"
+        )
+        st.error("😕 Password incorrect")
+        return False
+    else:
+        # Password correct.
+        return True
+
+
+# 3. WRAP THE ENTIRE APP IN THE PASSWORD CHECK
+if check_password():
+    
+    # --- EVERYTHING BELOW THIS LINE IS YOUR EXISTING APP CODE ---
+    
+    st.title("🏦 Finealth: Financial Health Tracker")
+
+    # Connect to the Neon PostgreSQL Database
+    conn = st.connection("postgresql", type="sql")
+
+    # --- APP NAVIGATION ---
+    st.sidebar.title("Navigation")
+    menu = st.sidebar.radio("Go to module:", ["Dashboard", "Accounts", "Assets & Liabilities", "Investments", "Baseline Snapshots", "Transactions"])
+
+    # Add a logout button to the bottom of the sidebar
+    st.sidebar.divider()
+    if st.sidebar.button("Log Out"):
+        st.session_state["password_correct"] = False
+        st.rerun()
 
 # ==========================================
 # MODULE 0: DASHBOARD
