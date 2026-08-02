@@ -590,10 +590,10 @@ elif menu == "Investments":
         tab1, tab2 = st.tabs(["➕ Add Investment", "📋 View Investments"])
 
     with tab1:
-            df_active_accounts = conn.query("SELECT id, account_name FROM accounts WHERE is_active = true ORDER BY account_name;", ttl=0)
-            account_options = {"None (Unlinked)": None}
-            for _, row in df_active_accounts.iterrows():
-                account_options[row['account_name']] = row['id']
+        df_active_accounts = conn.query("SELECT id, account_name FROM accounts WHERE is_active = true ORDER BY account_name;", ttl=0)
+        account_options = {"None (Unlinked)": None}
+        for _, row in df_active_accounts.iterrows():
+            account_options[row['account_name']] = row['id']
 
         with st.form("add_investment_form", clear_on_submit=True):
                 col1, col2 = st.columns(2)
@@ -608,44 +608,44 @@ elif menu == "Investments":
                     is_fi = st.checkbox("Count towards FI Wealth", value=True, help="Include this investment in your Financial Independence calculations")
                     
             if st.form_submit_button("Save Investment"):
-                    if inv_name:
-                        linked_account_id = account_options[selected_account_label]
-                        with conn.session as s:
+                if inv_name:
+                    linked_account_id = account_options[selected_account_label]
+                    with conn.session as s:
                             # --- UPDATED: Added is_fi_eligible to INSERT statement ---
-                            sql = text("""
-                                INSERT INTO investments (investment_name, investment_type, linked_account_id, currency, is_fi_eligible) 
-                                VALUES (:name, :type, :linked_id, :currency, :fi);
-                            """)
-                            s.execute(sql, {
-                                "name": inv_name, 
-                                "type": inv_type, 
-                                "linked_id": linked_account_id, 
-                                "currency": currency,
-                                "fi": is_fi
-                            })
-                            s.commit()
-                        st.success(f"Successfully added investment: {inv_name}")
+                        sql = text("""
+                            INSERT INTO investments (investment_name, investment_type, linked_account_id, currency, is_fi_eligible) 
+                            VALUES (:name, :type, :linked_id, :currency, :fi);
+                        """)
+                        s.execute(sql, {
+                            "name": inv_name, 
+                            "type": inv_type, 
+                            "linked_id": linked_account_id, 
+                            "currency": currency,
+                            "fi": is_fi
+                        })
+                        s.commit()
+                    st.success(f"Successfully added investment: {inv_name}")
 
     with tab2:
-            # --- UPDATED: Added i.is_fi_eligible to the SELECT query ---
-            sql_view = """
-                SELECT 
-                    i.id, i.investment_name, i.investment_type, 
-                    a.account_name AS linked_account, i.currency, i.is_fi_eligible 
-                FROM investments i 
-                LEFT JOIN accounts a ON i.linked_account_id = a.id 
-                ORDER BY i.id DESC;
-            """
+        # --- UPDATED: Added i.is_fi_eligible to the SELECT query ---
+        sql_view = """
+            SELECT 
+                i.id, i.investment_name, i.investment_type, 
+                a.account_name AS linked_account, i.currency, i.is_fi_eligible 
+            FROM investments i 
+            LEFT JOIN accounts a ON i.linked_account_id = a.id 
+            ORDER BY i.id DESC;
+        """
             
-            # --- UPDATED: Added column_config to display FI status cleanly ---
-            st.dataframe(
-                conn.query(sql_view, ttl=0), 
-                use_container_width=True, 
-                hide_index=True,
-                column_config={
-                    "is_fi_eligible": "FI Eligible"
-                }
-            )
+        # --- UPDATED: Added column_config to display FI status cleanly ---
+        st.dataframe(
+            conn.query(sql_view, ttl=0), 
+            use_container_width=True, 
+            hide_index=True,
+            column_config={
+                "is_fi_eligible": "FI Eligible"
+            }
+        )
 
 # ==========================================
 # MODULE 4: BASELINE SNAPSHOTS
