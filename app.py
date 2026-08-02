@@ -3,6 +3,7 @@ import pandas as pd
 from sqlalchemy import text
 from datetime import date
 import time
+import plotly.express as px
 
 # Page Configuration
 st.set_page_config(page_title="Finealth Dashboard", page_icon="🏦", layout="wide")
@@ -23,7 +24,7 @@ if menu == "Dashboard":
     st.header("📊 Financial Health Dashboard")
     st.write("Your net worth composition based on your latest recorded snapshots.")
 
-    # UPDATED SQL: Added a CASE statement to multiply Liabilities by -1
+    # 1. Grab the Top-Level KPIs (Using your existing Latest Snapshot logic)
     sql_latest_snapshots = """
         WITH RankedSnapshots AS (
             SELECT 
@@ -58,7 +59,6 @@ if menu == "Dashboard":
         total_nw = df_snaps['value_in_inr'].sum()
         total_items = len(df_snaps)
         
-        # Get count of transactions for the current month
         current_month = date.today().replace(day=1)
         sql_tx_count = f"SELECT COUNT(*) as count FROM transactions WHERE transaction_date >= '{current_month}'"
         df_tx_count = conn.query(sql_tx_count, ttl=0)
@@ -67,28 +67,83 @@ if menu == "Dashboard":
         # Render KPI Cards
         st.subheader("Key Metrics")
         col1, col2, col3 = st.columns(3)
-        col1.metric("Total Net Worth (INR)", f"₹ {total_nw:,.2f}")
+        col1.metric("Current Net Worth (INR)", f"₹ {total_nw:,.2f}")
         col2.metric("Tracked Entities", f"{total_items}")
         col3.metric("Transactions This Month", f"{tx_count}")
         
         st.divider()
+
+        # ---------------------------------------------------------
+        # NEW SECTION: Historical Net Worth Trend (Area Chart)
+        # ---------------------------------------------------------
+        st.subheader("Historical Net Worth Trend")
         
-        # Render Charts
+        # Step A: Get EVERY snapshot ever recorded, treating liabilities as negative
+        sql_history = """
+            SELECT 
+                b.snapshot_date,
+                b.entity_type || '_' || b.entity_id AS unique_entity_id,
+                CASE 
+                    WHEN b.entity_type = 'Asset_Liability' AND al.type = 'Liability' 
+                    THEN (b.balance_or_value * b.exchange_rate_to_inr * -1)
+                    ELSE (b.balance_or_value * b.exchange_rate_to_inr)
+                END as value_in_inr
+            FROM baseline_snapshots b
+            LEFT JOIN assets_liabilities al ON b.entity_type = 'Asset_Liability' AND b.entity_id = al.id
+            ORDER BY b.snapshot_date ASC;
+        """
+        df_all_snaps = conn.query(sql_history, ttl=0)
+
+        if not df_all_snaps.empty:
+            # Step B: Pivot the data so every date is a row, and every account is a column
+            df_pivot = df_all_snaps.pivot_table(
+                index='snapshot_date', 
+                columns='unique_entity_id', 
+                values='value_in_inr',
+                aggfunc='last' # If you logged twice in one day, take the last one
+            )
+            
+            # Step C: The Forward Fill Magic! 
+            # Carry previous balances forward to dates where they weren't explicitly updated
+            df_pivot = df_pivot.ffill().fillna(0)
+            
+            # Step D: Sum all columns horizontally to get the Total Net Worth for each date
+            df_pivot['Total Net Worth'] = df_pivot.sum(axis=1)
+            df_trend = df_pivot.reset_index()
+
+            # Step E: Render the Plotly Area Chart
+            import plotly.express as px
+            fig = px.area(
+                df_trend, 
+                x='snapshot_date', 
+                y='Total Net Worth', 
+                color_discrete_sequence=['#00b4d8'] # A nice financial blue color
+            )
+            
+            # Clean up the chart UI
+            fig.update_layout(
+                xaxis_title="Date",
+                yaxis_title="Net Worth (INR)",
+                margin=dict(l=0, r=0, t=10, b=0),
+                yaxis_tickformat="₹,.0f" # Format the Y-axis numbers as Rupees
+            )
+            # Fill the container completely
+            st.plotly_chart(fig, use_container_width=True)
+
+        st.divider()
+
+        # Render original bottom charts
         col_chart1, col_chart2 = st.columns(2)
-        
         with col_chart1:
             st.subheader("Net Worth Composition")
             df_grouped = df_snaps.groupby('entity_type')['value_in_inr'].sum().reset_index()
             df_grouped['entity_type'] = df_grouped['entity_type'].replace({
-                'Account': 'Liquid Accounts', 
-                'Asset_Liability': 'Assets & Liabilities', 
-                'Investment': 'Investments'
+                'Account': 'Liquid Accounts', 'Asset_Liability': 'Assets & Liabilities', 'Investment': 'Investments'
             })
             st.bar_chart(df_grouped, x="entity_type", y="value_in_inr")
             
         with col_chart2:
             st.subheader("Top 5 Holdings (INR)")
-            # Sort by absolute value so large debts also show up prominently, but plot the real value
             df_top = df_snaps.reindex(df_snaps.value_in_inr.abs().sort_values(ascending=False).index).head(5)
             st.bar_chart(df_top, x="entity_name", y="value_in_inr")
 
