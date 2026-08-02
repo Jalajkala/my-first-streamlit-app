@@ -128,8 +128,53 @@ if menu == "Dashboard":
         </style>
     """, unsafe_allow_html=True)
 
-    st.header("📊 RuJal's Financial Health Dashboard")
-    st.write("Your net worth composition based strictly on snapshots from the most recently recorded month.")
+    # Dashboard Header with Export Button Layout
+    col_head, col_btn = st.columns([4, 1])
+    
+    with col_head:
+        st.header("📊 Financial Health Dashboard")
+        st.write("Your net worth composition based strictly on snapshots from the most recently recorded month.")
+        
+    with col_btn:
+        # Inject the Print CSS and JS Trigger Button
+        st.markdown("""
+            <style>
+            /* CSS applied ONLY when generating the PDF */
+            @media print {
+                /* Hide the Streamlit sidebar */
+                [data-testid="stSidebar"] { display: none !important; }
+                /* Hide the Streamlit header / hamburger menu */
+                header[data-testid="stHeader"] { display: none !important; }
+                /* Hide the export button itself from the final PDF */
+                .hide-on-print { display: none !important; }
+                /* Give the charts more room to breathe on the page */
+                .block-container { padding-top: 2rem !important; }
+            }
+            
+            /* CSS for the sleek export button */
+            .pdf-btn {
+                display: inline-block;
+                background-color: #2e3b4e;
+                color: #ffffff !important;
+                padding: 10px 20px;
+                border-radius: 6px;
+                text-decoration: none;
+                font-weight: 600;
+                text-align: center;
+                width: 100%;
+                margin-top: 15px;
+                border: 1px solid #4a5d7c;
+                transition: background-color 0.2s;
+            }
+            .pdf-btn:hover { 
+                background-color: #4a5d7c; 
+            }
+            </style>
+            
+            <div class="hide-on-print">
+                <a href="javascript:window.print()" class="pdf-btn" target="_self">📄 Export to PDF</a>
+            </div>
+        """, unsafe_allow_html=True)
 
     # 1. Grab the Top-Level Latest Snapshots (UPDATED with is_fi_eligible)
     sql_latest_snapshots = """
