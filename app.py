@@ -89,20 +89,35 @@ if menu == "Dashboard":
         # ---------------------------------------------------------
         st.subheader("Historical Net Worth Trend")
         
+        # UPDATED: We now pull entity_name and detailed_category so our tables can use them later!
         sql_history = """
             SELECT 
                 b.snapshot_date,
                 b.entity_type || '_' || b.entity_id AS unique_entity_id,
+                CASE 
+                    WHEN b.entity_type = 'Account' THEN a.account_name
+                    WHEN b.entity_type = 'Asset_Liability' THEN al.name
+                    WHEN b.entity_type = 'Investment' THEN i.investment_name
+                END as entity_name,
+                CASE 
+                    WHEN b.entity_type = 'Account' THEN a.account_type
+                    WHEN b.entity_type = 'Asset_Liability' THEN al.category
+                    WHEN b.entity_type = 'Investment' THEN i.investment_type
+                END as detailed_category,
                 CASE 
                     WHEN b.entity_type = 'Asset_Liability' AND al.type = 'Liability' 
                     THEN (b.balance_or_value * b.exchange_rate_to_inr * -1)
                     ELSE (b.balance_or_value * b.exchange_rate_to_inr)
                 END as value_in_inr
             FROM baseline_snapshots b
+            LEFT JOIN accounts a ON b.entity_type = 'Account' AND b.entity_id = a.id
             LEFT JOIN assets_liabilities al ON b.entity_type = 'Asset_Liability' AND b.entity_id = al.id
+            LEFT JOIN investments i ON b.entity_type = 'Investment' AND b.entity_id = i.id
             ORDER BY b.snapshot_date ASC;
         """
         df_all_snaps = conn.query(sql_history, ttl=0)
+        
+        import plotly.express as px
 
         if not df_all_snaps.empty:
             df_all_snaps['snapshot_date'] = pd.to_datetime(df_all_snaps['snapshot_date'])
@@ -119,19 +134,10 @@ if menu == "Dashboard":
             df_trend = df_pivot.reset_index()
             df_trend['chart_date'] = df_trend['month_period'].dt.to_timestamp()
 
-            import plotly.express as px
-            fig_area = px.area(
-                df_trend, 
-                x='chart_date', 
-                y='Total Net Worth', 
-                color_discrete_sequence=['#00b4d8']
-            )
-            
+            fig_area = px.area(df_trend, x='chart_date', y='Total Net Worth', color_discrete_sequence=['#00b4d8'])
             fig_area.update_layout(
-                xaxis_title="",
-                yaxis_title="Net Worth (INR)",
-                margin=dict(l=0, r=0, t=10, b=0),
-                yaxis_tickformat="₹,.0f",
+                xaxis_title="", yaxis_title="Net Worth (INR)",
+                margin=dict(l=0, r=0, t=10, b=0), yaxis_tickformat="₹,.0f",
                 xaxis=dict(tickformat="%b %Y", dtick="M1")
             )
             st.plotly_chart(fig_area, use_container_width=True)
@@ -139,36 +145,112 @@ if menu == "Dashboard":
         st.divider()
 
         # ---------------------------------------------------------
-        # True Asset Allocation (Donut Chart)
+        # Interactive Asset Allocation (Pie + Table)
         # ---------------------------------------------------------
-        st.subheader(f"Asset Allocation Breakdown ({latest_month_display})")
-        
-        # Filter strictly for positive assets to render the pie chart
+        st.subheader(f"Asset Allocation ({latest_month_display})")
         df_assets = df_snaps[df_snaps['value_in_inr'] > 0]
         
-        if not df_assets.empty:
-            # Group by our new detailed_category
-            df_grouped_assets = df_assets.groupby('detailed_category')['value_in_inr'].sum().reset_index()
-            
-            fig_donut = px.pie(
-                df_grouped_assets, 
-                values='value_in_inr', 
-                names='detailed_category', 
-                hole=0.6, # This creates the "Donut" effect
-                color_discrete_sequence=px.colors.sequential.Teal
-            )
-            
-            # Put labels inside the slices for a cleaner look
-            fig_donut.update_traces(textposition='inside', textinfo='percent+label')
-            fig_donut.update_layout(
-                margin=dict(l=0, r=0, t=10, b=10),
-                showlegend=False 
-            )
-            
-            # By default, Streamlit will center this since we removed the columns
-            st.plotly_chart(fig_donut, use_container_width=True)
-        else:
-            st.info("No positive assets logged this month to calculate allocation.")
+        # Split the screen: Chart on left, Table on right
+        col_pie, col_ast_table = st.columns([1.2, 1])
+        
+        with col_pie:
+            if not df_assets.empty:
+                df_grouped_assets = df_assets.groupby('detailed_category')['value_in_inr'].sum().reset_index()
+                fig_donut = px.pie(
+                    df_grouped_assets, values='value_in_inr', names='detailed_category', 
+                    hole=0.6, color_discrete_sequence=px.colors.sequential.Teal
+                )
+                fig_donut.update_traces(textposition='inside', textinfo='percent+label')
+                fig_donut.update_layout(margin=dict(l=0, r=0, t=10, b=10), showlegend=False)
+                
+                # capture the selection event!
+                pie_event = st.plotly_chart(fig_donut, use_container_width=True, on_select="rerun")
+                
+                selected_category = None
+                if pie_event and "selection" in pie_event and pie_event["selection"]["points"]:
+                    point_idx = pie_event["selection"]["points"][0]["pointIndex"]
+                    selected_category = df_grouped_assets.iloc[point_idx]['detailed_category']
+            else:
+                st.info("No positive assets logged this month.")
+                
+        with col_ast_table:
+            if not df_assets.empty:
+                # Filter the dataframe based on the clicked pie slice
+                if selected_category:
+                    st.write(f"**Selected:** {selected_category}")
+                    display_df = df_assets[df_assets['detailed_category'] == selected_category]
+                else:
+                    st.write("**All Assets** (Click a pie slice to filter)")
+                    display_df = df_assets
+                    
+                st.dataframe(
+                    display_df[['entity_name', 'detailed_category', 'value_in_inr']],
+                    use_container_width=True, hide_index=True,
+                    column_config={
+                        "entity_name": "Name", "detailed_category": "Type",
+                        "value_in_inr": st.column_config.NumberColumn("Value (INR)", format="₹%.2f")
+                    }
+                )
+
+        st.divider()
+
+        # ---------------------------------------------------------
+        # Interactive Liabilities Trend (Bar + Table)
+        # ---------------------------------------------------------
+        st.subheader("Liabilities Month-on-Month Trend")
+        # Filter the history dataframe for negative values (Debts)
+        df_liabilities = df_all_snaps[df_all_snaps['value_in_inr'] < 0].copy()
+        
+        col_liab_chart, col_liab_table = st.columns([1.2, 1])
+        
+        with col_liab_chart:
+            if not df_liabilities.empty:
+                # Convert to positive absolute values so the chart is easy to read
+                df_liabilities['abs_value'] = df_liabilities['value_in_inr'].abs()
+                df_liabilities['chart_date'] = df_liabilities['month_period'].dt.to_timestamp()
+                
+                df_liab_trend = df_liabilities.groupby('chart_date')['abs_value'].sum().reset_index()
+                
+                fig_liab = px.bar(
+                    df_liab_trend, x='chart_date', y='abs_value', 
+                    color_discrete_sequence=['#ef476f'] # Pink/Red color for debt
+                )
+                fig_liab.update_layout(
+                    xaxis_title="", yaxis_title="Total Liabilities (INR)",
+                    margin=dict(l=0, r=0, t=10, b=0), yaxis_tickformat="₹,.0f",
+                    xaxis=dict(tickformat="%b %Y", dtick="M1")
+                )
+                
+                liab_event = st.plotly_chart(fig_liab, use_container_width=True, on_select="rerun")
+                
+                selected_month = None
+                if liab_event and "selection" in liab_event and liab_event["selection"]["points"]:
+                    selected_x = liab_event["selection"]["points"][0]["x"]
+                    selected_month = pd.to_datetime(selected_x)
+            else:
+                st.success("No liabilities recorded! Great job.")
+                
+        with col_liab_table:
+            if not df_liabilities.empty:
+                if selected_month:
+                    st.write(f"**Liabilities for:** {selected_month.strftime('%b %Y')}")
+                    display_liab_df = df_liabilities[df_liabilities['month_period'] == selected_month.to_period('M')]
+                else:
+                    latest_liab_month = df_liabilities['month_period'].max()
+                    st.write(f"**Liabilities for:** {latest_liab_month.strftime('%b %Y')} (Click a bar to change)")
+                    display_liab_df = df_liabilities[df_liabilities['month_period'] == latest_liab_month]
+                
+                # Get only the latest snapshot for each liability in that specific month
+                display_liab_df = display_liab_df.sort_values('snapshot_date').groupby('unique_entity_id').last().reset_index()
+                    
+                st.dataframe(
+                    display_liab_df[['entity_name', 'detailed_category', 'abs_value']],
+                    use_container_width=True, hide_index=True,
+                    column_config={
+                        "entity_name": "Name", "detailed_category": "Type",
+                        "abs_value": st.column_config.NumberColumn("Owed (INR)", format="₹%.2f")
+                    }
+                )
 
 # ==========================================
 # MODULE 1: ACCOUNTS
