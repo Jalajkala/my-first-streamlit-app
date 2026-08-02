@@ -22,11 +22,16 @@ menu = st.sidebar.radio("Go to module:", ["Dashboard", "Accounts", "Assets & Lia
 # ==========================================
 if menu == "Dashboard":
     st.header("📊 Financial Health Dashboard")
-    st.write("Your net worth composition based on your latest recorded snapshots.")
+    st.write("Your net worth composition based strictly on snapshots from the most recently recorded month.")
 
-    # 1. Grab the Top-Level KPIs (Using your existing Latest Snapshot logic)
+    # 1. Grab the Top-Level KPIs (STRICT MONTHLY BOUNDARY)
+    # We find the latest month that has data, and ONLY pull snapshots from that month.
     sql_latest_snapshots = """
-        WITH RankedSnapshots AS (
+        WITH MaxMonth AS (
+            SELECT DATE_TRUNC('month', MAX(snapshot_date)) as max_month 
+            FROM baseline_snapshots
+        ),
+        RankedSnapshots AS (
             SELECT 
                 b.entity_type, 
                 CASE 
@@ -44,9 +49,11 @@ if menu == "Dashboard":
                 b.snapshot_date,
                 ROW_NUMBER() OVER(PARTITION BY b.entity_type, b.entity_id ORDER BY b.snapshot_date DESC) as rn
             FROM baseline_snapshots b
+            CROSS JOIN MaxMonth
             LEFT JOIN accounts a ON b.entity_type = 'Account' AND b.entity_id = a.id
             LEFT JOIN assets_liabilities al ON b.entity_type = 'Asset_Liability' AND b.entity_id = al.id
             LEFT JOIN investments i ON b.entity_type = 'Investment' AND b.entity_id = i.id
+            WHERE DATE_TRUNC('month', b.snapshot_date) = MaxMonth.max_month
         )
         SELECT * FROM RankedSnapshots WHERE rn = 1;
     """
@@ -67,18 +74,20 @@ if menu == "Dashboard":
         # Render KPI Cards
         st.subheader("Key Metrics")
         col1, col2, col3 = st.columns(3)
-        col1.metric("Current Net Worth (INR)", f"₹ {total_nw:,.2f}")
-        col2.metric("Tracked Entities", f"{total_items}")
+        
+        # Format the display to show which month we are looking at
+        latest_month_display = pd.to_datetime(df_snaps['snapshot_date'].iloc[0]).strftime('%b %Y')
+        col1.metric(f"Net Worth ({latest_month_display})", f"₹ {total_nw:,.2f}")
+        col2.metric("Entities Logged This Month", f"{total_items}")
         col3.metric("Transactions This Month", f"{tx_count}")
         
         st.divider()
 
         # ---------------------------------------------------------
-        # NEW SECTION: Historical Net Worth Trend (Area Chart)
+        # Historical Net Worth Trend (Area Chart) - STRICT MONTHLY
         # ---------------------------------------------------------
         st.subheader("Historical Net Worth Trend")
         
-        # Step A: Get EVERY snapshot ever recorded, treating liabilities as negative
         sql_history = """
             SELECT 
                 b.snapshot_date,
@@ -95,43 +104,45 @@ if menu == "Dashboard":
         df_all_snaps = conn.query(sql_history, ttl=0)
 
         if not df_all_snaps.empty:
-            # Step B: Pivot the data so every date is a row, and every account is a column
+            # Convert string dates to actual datetime objects
+            df_all_snaps['snapshot_date'] = pd.to_datetime(df_all_snaps['snapshot_date'])
+            # Group by Year-Month period (e.g., '2026-08')
+            df_all_snaps['month_period'] = df_all_snaps['snapshot_date'].dt.to_period('M')
+            
+            # Pivot the data by month instead of exact date
+            # Notice we removed .ffill() entirely!
             df_pivot = df_all_snaps.pivot_table(
-                index='snapshot_date', 
+                index='month_period', 
                 columns='unique_entity_id', 
                 values='value_in_inr',
-                aggfunc='last' # If you logged twice in one day, take the last one
-            )
+                aggfunc='last' # If you accidentally log the same account twice in one month, it takes the last one
+            ).fillna(0) # If an account wasn't logged this month, it evaluates to 0
             
-            # Step C: The Forward Fill Magic! 
-            # Carry previous balances forward to dates where they weren't explicitly updated
-            df_pivot = df_pivot.ffill().fillna(0)
-            
-            # Step D: Sum all columns horizontally to get the Total Net Worth for each date
+            # Sum all columns horizontally for that month's total
             df_pivot['Total Net Worth'] = df_pivot.sum(axis=1)
             df_trend = df_pivot.reset_index()
+            
+            # Convert period back to timestamp so Plotly can render it on an axis
+            df_trend['chart_date'] = df_trend['month_period'].dt.to_timestamp()
 
-            # Step E: Render the Plotly Area Chart
             import plotly.express as px
             fig = px.area(
                 df_trend, 
-                x='snapshot_date', 
+                x='chart_date', 
                 y='Total Net Worth', 
-                color_discrete_sequence=['#00b4d8'] # A nice financial blue color
+                color_discrete_sequence=['#00b4d8']
             )
             
-            # Clean up the chart UI and format X-axis to Month-Year
             fig.update_layout(
-                xaxis_title="", # Removed title to keep it clean, the dates speak for themselves
+                xaxis_title="",
                 yaxis_title="Net Worth (INR)",
                 margin=dict(l=0, r=0, t=10, b=0),
-                yaxis_tickformat="₹,.0f", # Format the Y-axis numbers as Rupees
+                yaxis_tickformat="₹,.0f",
                 xaxis=dict(
-                    tickformat="%b %Y",   # Formats ticks as 'Aug 2026', 'Sep 2026', etc.
-                    dtick="M1"            # Forces Plotly to place a tick mark exactly every 1 month
+                    tickformat="%b %Y",
+                    dtick="M1"
                 )
             )
-            # Fill the container completely
             st.plotly_chart(fig, use_container_width=True)
 
         st.divider()
@@ -139,7 +150,7 @@ if menu == "Dashboard":
         # Render original bottom charts
         col_chart1, col_chart2 = st.columns(2)
         with col_chart1:
-            st.subheader("Net Worth Composition")
+            st.subheader(f"Composition ({latest_month_display})")
             df_grouped = df_snaps.groupby('entity_type')['value_in_inr'].sum().reset_index()
             df_grouped['entity_type'] = df_grouped['entity_type'].replace({
                 'Account': 'Liquid Accounts', 'Asset_Liability': 'Assets & Liabilities', 'Investment': 'Investments'
@@ -147,7 +158,7 @@ if menu == "Dashboard":
             st.bar_chart(df_grouped, x="entity_type", y="value_in_inr")
             
         with col_chart2:
-            st.subheader("Top 5 Holdings (INR)")
+            st.subheader(f"Top 5 Holdings ({latest_month_display})")
             df_top = df_snaps.reindex(df_snaps.value_in_inr.abs().sort_values(ascending=False).index).head(5)
             st.bar_chart(df_top, x="entity_name", y="value_in_inr")
 
