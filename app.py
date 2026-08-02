@@ -75,7 +75,7 @@ if menu == "Dashboard":
     st.header("📊 Financial Health Dashboard")
     st.write("Your net worth composition based strictly on snapshots from the most recently recorded month.")
 
-    # 1. Grab the Top-Level KPIs (STRICT MONTHLY BOUNDARY)
+    # 1. Grab the Top-Level Latest Snapshots
     sql_latest_snapshots = """
         WITH MaxMonth AS (
             SELECT DATE_TRUNC('month', MAX(snapshot_date)) as max_month 
@@ -114,24 +114,90 @@ if menu == "Dashboard":
     """
     df_snaps = conn.query(sql_latest_snapshots, ttl=0)
     
+    # 2. Grab ALL Historical Data (Moved to the top for KPI calculations)
+    sql_history = """
+        SELECT 
+            b.snapshot_date,
+            b.entity_type || '_' || b.entity_id AS unique_entity_id,
+            CASE 
+                WHEN b.entity_type = 'Account' THEN a.account_name
+                WHEN b.entity_type = 'Asset_Liability' THEN al.name
+                WHEN b.entity_type = 'Investment' THEN i.investment_name
+            END as entity_name,
+            CASE 
+                WHEN b.entity_type = 'Account' THEN a.account_type
+                WHEN b.entity_type = 'Asset_Liability' THEN al.category
+                WHEN b.entity_type = 'Investment' THEN i.investment_type
+            END as detailed_category,
+            CASE 
+                WHEN b.entity_type = 'Asset_Liability' AND al.type = 'Liability' 
+                THEN (b.balance_or_value * b.exchange_rate_to_inr * -1)
+                ELSE (b.balance_or_value * b.exchange_rate_to_inr)
+            END as value_in_inr
+        FROM baseline_snapshots b
+        LEFT JOIN accounts a ON b.entity_type = 'Account' AND b.entity_id = a.id
+        LEFT JOIN assets_liabilities al ON b.entity_type = 'Asset_Liability' AND b.entity_id = al.id
+        LEFT JOIN investments i ON b.entity_type = 'Investment' AND b.entity_id = i.id
+        ORDER BY b.snapshot_date ASC;
+    """
+    df_all_snaps = conn.query(sql_history, ttl=0)
+    
     if df_snaps.empty:
         st.info("No snapshot data available to generate the dashboard. Please add baseline snapshots first.")
     else:
-        total_nw = df_snaps['value_in_inr'].sum()
-        total_items = len(df_snaps)
-        
-        current_month = date.today().replace(day=1)
-        sql_tx_count = f"SELECT COUNT(*) as count FROM transactions WHERE transaction_date >= '{current_month}'"
-        df_tx_count = conn.query(sql_tx_count, ttl=0)
-        tx_count = df_tx_count.iloc[0]['count'] if not df_tx_count.empty else 0
-
-        st.subheader("Key Metrics")
-        col1, col2, col3 = st.columns(3)
-        
+        # Calculate Base Values for Current Month
         latest_month_display = pd.to_datetime(df_snaps['snapshot_date'].iloc[0]).strftime('%b %Y')
-        col1.metric(f"Net Worth ({latest_month_display})", f"₹ {total_nw:,.2f}")
-        col2.metric("Entities Logged This Month", f"{total_items}")
-        col3.metric("Transactions This Month", f"{tx_count}")
+        total_nw = df_snaps['value_in_inr'].sum()
+        current_assets = df_snaps[df_snaps['value_in_inr'] > 0]['value_in_inr'].sum()
+        current_liabilities = df_snaps[df_snaps['value_in_inr'] < 0]['value_in_inr'].sum() * -1 # Render as a positive debt amount
+        
+        # Determine MoM and YoY Trends
+        yoy_pct_str, yoy_val_str = "N/A", None
+        mom_pct_str, mom_val_str = "N/A", None
+        df_pivot = pd.DataFrame()
+        
+        if not df_all_snaps.empty:
+            df_all_snaps['snapshot_date'] = pd.to_datetime(df_all_snaps['snapshot_date'])
+            df_all_snaps['month_period'] = df_all_snaps['snapshot_date'].dt.to_period('M')
+            
+            df_pivot = df_all_snaps.pivot_table(
+                index='month_period', columns='unique_entity_id', values='value_in_inr', aggfunc='last'
+            ).fillna(0) 
+            df_pivot['Total Net Worth'] = df_pivot.sum(axis=1)
+            
+            latest_period = df_pivot.index.max()
+            
+            # Month-over-Month calculation (Strictly looks 1 month back)
+            prev_period = latest_period - 1
+            if prev_period in df_pivot.index:
+                prev_nw = df_pivot.loc[prev_period, 'Total Net Worth']
+                if prev_nw != 0:
+                    mom_pct = ((total_nw - prev_nw) / abs(prev_nw)) * 100
+                    mom_pct_str = f"{mom_pct:,.2f}%"
+                    mom_val_str = f"₹ {(total_nw - prev_nw):,.2f}"
+                    
+            # Year-over-Year calculation (Strictly looks 12 months back)
+            prev_year_period = latest_period - 12
+            if prev_year_period in df_pivot.index:
+                prev_yr_nw = df_pivot.loc[prev_year_period, 'Total Net Worth']
+                if prev_yr_nw != 0:
+                    yoy_pct = ((total_nw - prev_yr_nw) / abs(prev_yr_nw)) * 100
+                    yoy_pct_str = f"{yoy_pct:,.2f}%"
+                    yoy_val_str = f"₹ {(total_nw - prev_yr_nw):,.2f}"
+
+        # ---------------------------------------------------------
+        # NEW TOP ROW: 5-Column Key Metrics
+        # ---------------------------------------------------------
+        st.subheader("Key Metrics")
+        col1, col2, col3, col4, col5 = st.columns(5)
+        
+        col1.metric("Current Assets", f"₹ {current_assets:,.2f}")
+        col2.metric("Current Liabilities", f"₹ {current_liabilities:,.2f}")
+        col3.metric(f"Net Worth ({latest_month_display})", f"₹ {total_nw:,.2f}")
+        
+        # Streamlit automatically colors the 'delta' green/red and adds the arrow
+        col4.metric("YoY NW Growth", yoy_pct_str, delta=yoy_val_str)
+        col5.metric("MoM NW Growth", mom_pct_str, delta=mom_val_str)
         
         st.divider()
 
@@ -139,53 +205,14 @@ if menu == "Dashboard":
         # Historical Net Worth Trend (Area Chart)
         # ---------------------------------------------------------
         st.subheader("Historical Net Worth Trend")
-        
-        # UPDATED: We now pull entity_name and detailed_category so our tables can use them later!
-        sql_history = """
-            SELECT 
-                b.snapshot_date,
-                b.entity_type || '_' || b.entity_id AS unique_entity_id,
-                CASE 
-                    WHEN b.entity_type = 'Account' THEN a.account_name
-                    WHEN b.entity_type = 'Asset_Liability' THEN al.name
-                    WHEN b.entity_type = 'Investment' THEN i.investment_name
-                END as entity_name,
-                CASE 
-                    WHEN b.entity_type = 'Account' THEN a.account_type
-                    WHEN b.entity_type = 'Asset_Liability' THEN al.category
-                    WHEN b.entity_type = 'Investment' THEN i.investment_type
-                END as detailed_category,
-                CASE 
-                    WHEN b.entity_type = 'Asset_Liability' AND al.type = 'Liability' 
-                    THEN (b.balance_or_value * b.exchange_rate_to_inr * -1)
-                    ELSE (b.balance_or_value * b.exchange_rate_to_inr)
-                END as value_in_inr
-            FROM baseline_snapshots b
-            LEFT JOIN accounts a ON b.entity_type = 'Account' AND b.entity_id = a.id
-            LEFT JOIN assets_liabilities al ON b.entity_type = 'Asset_Liability' AND b.entity_id = al.id
-            LEFT JOIN investments i ON b.entity_type = 'Investment' AND b.entity_id = i.id
-            ORDER BY b.snapshot_date ASC;
-        """
-        df_all_snaps = conn.query(sql_history, ttl=0)
-        
-        import plotly.express as px
-
-        if not df_all_snaps.empty:
-            df_all_snaps['snapshot_date'] = pd.to_datetime(df_all_snaps['snapshot_date'])
-            df_all_snaps['month_period'] = df_all_snaps['snapshot_date'].dt.to_period('M')
-            
-            df_pivot = df_all_snaps.pivot_table(
-                index='month_period', 
-                columns='unique_entity_id', 
-                values='value_in_inr',
-                aggfunc='last'
-            ).fillna(0) 
-            
-            df_pivot['Total Net Worth'] = df_pivot.sum(axis=1)
+        if not df_pivot.empty:
+            import plotly.express as px
             df_trend = df_pivot.reset_index()
             df_trend['chart_date'] = df_trend['month_period'].dt.to_timestamp()
 
-            fig_area = px.area(df_trend, x='chart_date', y='Total Net Worth', color_discrete_sequence=['#00b4d8'])
+            fig_area = px.area(
+                df_trend, x='chart_date', y='Total Net Worth', color_discrete_sequence=['#00b4d8']
+            )
             fig_area.update_layout(
                 xaxis_title="", yaxis_title="Net Worth (INR)",
                 margin=dict(l=0, r=0, t=10, b=0), yaxis_tickformat="₹,.0f",
@@ -205,29 +232,25 @@ if menu == "Dashboard":
         
         with col_pie:
             if not df_assets.empty:
-                import altair as alt # Altair is built into Streamlit!
+                import altair as alt 
                 
                 df_grouped_assets = df_assets.groupby('detailed_category')['value_in_inr'].sum().reset_index()
                 
-                # 1. Create a selection parameter to capture clicks
                 click = alt.selection_point(name='click', fields=['detailed_category'])
                 
-                # 2. Build the interactive Altair Donut Chart
                 fig_donut = alt.Chart(df_grouped_assets).mark_arc(innerRadius=65).encode(
                     theta=alt.Theta(field="value_in_inr", type="quantitative"),
                     color=alt.Color(field="detailed_category", type="nominal", legend=alt.Legend(title="Type")),
-                    opacity=alt.condition(click, alt.value(1.0), alt.value(0.3)), # Dims the unselected slices!
+                    opacity=alt.condition(click, alt.value(1.0), alt.value(0.3)), 
                     tooltip=[
                         alt.Tooltip("detailed_category", title="Category"),
                         alt.Tooltip("value_in_inr", title="Amount (INR)", format=",.2f")
                     ]
                 ).add_params(click)
                 
-                # 3. Render and capture the event
                 pie_event = st.altair_chart(fig_donut, use_container_width=True, on_select="rerun")
                 
                 selected_category = None
-                # Parse the Altair selection dictionary when a slice is clicked
                 if pie_event and "selection" in pie_event and "click" in pie_event["selection"]:
                     if len(pie_event["selection"]["click"]) > 0:
                         selected_category = pie_event["selection"]["click"][0]["detailed_category"]
@@ -258,22 +281,21 @@ if menu == "Dashboard":
         # Interactive Liabilities Trend (Bar + Table)
         # ---------------------------------------------------------
         st.subheader("Liabilities Month-on-Month Trend")
-        # Filter the history dataframe for negative values (Debts)
         df_liabilities = df_all_snaps[df_all_snaps['value_in_inr'] < 0].copy()
         
         col_liab_chart, col_liab_table = st.columns([1.2, 1])
         
         with col_liab_chart:
             if not df_liabilities.empty:
-                # Convert to positive absolute values so the chart is easy to read
                 df_liabilities['abs_value'] = df_liabilities['value_in_inr'].abs()
                 df_liabilities['chart_date'] = df_liabilities['month_period'].dt.to_timestamp()
                 
                 df_liab_trend = df_liabilities.groupby('chart_date')['abs_value'].sum().reset_index()
                 
+                import plotly.express as px
                 fig_liab = px.bar(
                     df_liab_trend, x='chart_date', y='abs_value', 
-                    color_discrete_sequence=['#ef476f'] # Pink/Red color for debt
+                    color_discrete_sequence=['#ef476f']
                 )
                 fig_liab.update_layout(
                     xaxis_title="", yaxis_title="Total Liabilities (INR)",
@@ -300,7 +322,6 @@ if menu == "Dashboard":
                     st.write(f"**Liabilities for:** {latest_liab_month.strftime('%b %Y')} (Click a bar to change)")
                     display_liab_df = df_liabilities[df_liabilities['month_period'] == latest_liab_month]
                 
-                # Get only the latest snapshot for each liability in that specific month
                 display_liab_df = display_liab_df.sort_values('snapshot_date').groupby('unique_entity_id').last().reset_index()
                     
                 st.dataframe(
