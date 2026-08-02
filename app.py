@@ -586,8 +586,8 @@ elif menu == "Assets & Liabilities":
 # MODULE 3: INVESTMENTS
 # ==========================================
 elif menu == "Investments":
-        st.header("📈 Investment Portfolio Master")
-        tab1, tab2 = st.tabs(["➕ Add Investment", "📋 View Investments"])
+    st.header("📈 Investment Portfolio Master")
+    tab1, tab2 = st.tabs(["➕ Add Investment", "📋 View Investments"])
 
     with tab1:
         df_active_accounts = conn.query("SELECT id, account_name FROM accounts WHERE is_active = true ORDER BY account_name;", ttl=0)
