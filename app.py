@@ -463,96 +463,124 @@ elif menu == "Accounts":
         )
 
 # ==========================================
-# MODULE 2: ASSETS & LIABILITIES
-# ==========================================
-elif menu == "Assets & Liabilities":
-    st.header("🏠 Assets & Liabilities")
-    
-    # We now have THREE tabs
-    tab1, tab2, tab3 = st.tabs(["➕ Add Item", "📋 View Portfolio", "✏️ Edit / Delete Item"])
-
-    with tab1:
-        with st.form("add_asset_liability_form", clear_on_submit=True):
-            col1, col2 = st.columns(2)
-            with col1:
-                item_name = st.text_input("Name", placeholder="e.g., Tata Punch EV, Rohan Saroha Apartment, Personal Loan")
-                item_type = st.radio("Classification", ["Asset", "Liability"], horizontal=True)
-                currency = st.selectbox("Valuation Currency", ["INR", "THB", "EUR", "USD"])
-            with col2:
-                category = st.selectbox("Category", ["Real Estate", "Vehicle", "Home Loan", "Personal Loan", "Jewelry", "Other"])
-                is_active = st.checkbox("Active", value=True)
-                
-            if st.form_submit_button("Save Item"):
-                if item_name:
-                    with conn.session as s:
-                        sql = text("INSERT INTO assets_liabilities (name, category, type, currency, is_active) VALUES (:name, :category, :type, :currency, :active);")
-                        s.execute(sql, {"name": item_name, "category": category, "type": item_type, "currency": currency, "active": is_active})
-                        s.commit()
-                    st.success(f"Successfully added: {item_name}")
-
-    with tab2:
-        df_al = conn.query("SELECT * FROM assets_liabilities ORDER BY type ASC, id DESC;", ttl=0)
-        st.dataframe(df_al, use_container_width=True, hide_index=True)
-
-    with tab3:
-        st.subheader("Modify or Remove an Item")
-        df_edit_al = conn.query("SELECT * FROM assets_liabilities ORDER BY name;", ttl=0)
+    # MODULE 2: ASSETS & LIABILITIES
+    # ==========================================
+    elif menu == "Assets & Liabilities":
+        st.header("🏠 Assets & Liabilities")
         
-        if not df_edit_al.empty:
-            # Create a dictionary mapping the label to the database ID
-            edit_options = {f"{row['name']} ({row['type']})": row['id'] for _, row in df_edit_al.iterrows()}
-            selected_edit_label = st.selectbox("Select Item to Modify", list(edit_options.keys()))
-            selected_id = edit_options[selected_edit_label]
-            
-            # Extract the current data for the selected item to pre-fill the form
-            current_data = df_edit_al[df_edit_al['id'] == selected_id].iloc[0]
-            
-            with st.form("edit_al_form"):
-                # A clever trick to put two distinct actions in one form
-                action = st.radio("Choose Action", ["Update Record", "Delete Record"], horizontal=True)
-                st.write("---")
-                
+        # We now have THREE tabs
+        tab1, tab2, tab3 = st.tabs(["➕ Add Item", "📋 View Portfolio", "✏️ Edit / Delete Item"])
+
+        with tab1:
+            with st.form("add_asset_liability_form", clear_on_submit=True):
                 col1, col2 = st.columns(2)
                 with col1:
-                    new_name = st.text_input("Name", value=current_data['name'])
-                    
-                    types = ["Asset", "Liability"]
-                    # Find the index of the current value so the radio button defaults correctly
-                    new_type = st.radio("Classification ", types, index=types.index(current_data['type']), horizontal=True)
-                    
-                    currencies = ["INR", "THB", "EUR", "USD"]
-                    new_currency = st.selectbox("Valuation Currency ", currencies, index=currencies.index(current_data['currency']))
+                    item_name = st.text_input("Name", placeholder="e.g., Tata Punch EV, Rohan Saroha Apartment, Personal Loan")
+                    item_type = st.radio("Classification", ["Asset", "Liability"], horizontal=True)
+                    currency = st.selectbox("Valuation Currency", ["INR", "THB", "EUR", "USD"])
                 with col2:
-                    categories = ["Real Estate", "Vehicle", "Home Loan", "Car Loan", "Personal Loan", "Jewelry", "Other"]
-                    cat_idx = categories.index(current_data['category']) if current_data['category'] in categories else 0
-                    new_category = st.selectbox("Category ", categories, index=cat_idx)
+                    category = st.selectbox("Category", ["Real Estate", "Vehicle", "Home Loan", "Personal Loan", "Jewelry", "Other"])
+                    is_active = st.checkbox("Active", value=True)
+                    # --- NEW: Added FI Checkbox (Defaulted to False for physical assets) ---
+                    is_fi = st.checkbox("Count towards FI Wealth", value=False, help="Check this ONLY if this is a highly liquid asset you can sell for retirement living expenses.")
                     
-                    new_active = st.checkbox("Active ", value=current_data['is_active'])
-                
-                if st.form_submit_button("Execute Action"):
-                    if action == "Delete Record":
+                if st.form_submit_button("Save Item"):
+                    if item_name:
                         with conn.session as s:
-                            s.execute(text("DELETE FROM assets_liabilities WHERE id = :id"), {"id": selected_id})
-                            s.commit()
-                        st.success(f"Deleted {current_data['name']} successfully!")
-                        time.sleep(1) # Pause so you can read the success message
-                        st.rerun()    # Instantly refresh the page to update the dropdowns
-                        
-                    elif action == "Update Record":
-                        with conn.session as s:
+                            # --- UPDATED: Added is_fi_eligible to INSERT statement ---
                             sql = text("""
-                                UPDATE assets_liabilities 
-                                SET name=:name, category=:cat, type=:type, currency=:curr, is_active=:active
-                                WHERE id=:id
+                                INSERT INTO assets_liabilities (name, category, type, currency, is_active, is_fi_eligible) 
+                                VALUES (:name, :category, :type, :currency, :active, :fi);
                             """)
                             s.execute(sql, {
-                                "name": new_name, "cat": new_category, "type": new_type, 
-                                "curr": new_currency, "active": new_active, "id": selected_id
+                                "name": item_name, 
+                                "category": category, 
+                                "type": item_type, 
+                                "currency": currency, 
+                                "active": is_active,
+                                "fi": is_fi
                             })
                             s.commit()
-                        st.success(f"Updated {new_name} successfully!")
-                        time.sleep(1)
-                        st.rerun()
+                        st.success(f"Successfully added: {item_name}")
+
+        with tab2:
+            df_al = conn.query("SELECT * FROM assets_liabilities ORDER BY type ASC, id DESC;", ttl=0)
+            
+            # --- UPDATED: Configured column to show FI status cleanly ---
+            st.dataframe(
+                df_al, 
+                use_container_width=True, 
+                hide_index=True,
+                column_config={
+                    "is_active": "Active",
+                    "is_fi_eligible": "FI Eligible"
+                }
+            )
+
+        with tab3:
+            st.subheader("Modify or Remove an Item")
+            df_edit_al = conn.query("SELECT * FROM assets_liabilities ORDER BY name;", ttl=0)
+            
+            if not df_edit_al.empty:
+                # Create a dictionary mapping the label to the database ID
+                edit_options = {f"{row['name']} ({row['type']})": row['id'] for _, row in df_edit_al.iterrows()}
+                selected_edit_label = st.selectbox("Select Item to Modify", list(edit_options.keys()))
+                selected_id = edit_options[selected_edit_label]
+                
+                # Extract the current data for the selected item to pre-fill the form
+                current_data = df_edit_al[df_edit_al['id'] == selected_id].iloc[0]
+                
+                with st.form("edit_al_form"):
+                    # A clever trick to put two distinct actions in one form
+                    action = st.radio("Choose Action", ["Update Record", "Delete Record"], horizontal=True)
+                    st.write("---")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        new_name = st.text_input("Name", value=current_data['name'])
+                        
+                        types = ["Asset", "Liability"]
+                        # Find the index of the current value so the radio button defaults correctly
+                        new_type = st.radio("Classification ", types, index=types.index(current_data['type']), horizontal=True)
+                        
+                        currencies = ["INR", "THB", "EUR", "USD"]
+                        new_currency = st.selectbox("Valuation Currency ", currencies, index=currencies.index(current_data['currency']))
+                    with col2:
+                        categories = ["Real Estate", "Vehicle", "Home Loan", "Car Loan", "Personal Loan", "Jewelry", "Other"]
+                        cat_idx = categories.index(current_data['category']) if current_data['category'] in categories else 0
+                        new_category = st.selectbox("Category ", categories, index=cat_idx)
+                        
+                        new_active = st.checkbox("Active ", value=bool(current_data['is_active']))
+                        
+                        # --- NEW: Checkbox pulls current FI status from the database ---
+                        current_fi_status = bool(current_data.get('is_fi_eligible', False))
+                        new_fi = st.checkbox("Count towards FI Wealth ", value=current_fi_status)
+                    
+                    if st.form_submit_button("Execute Action"):
+                        if action == "Delete Record":
+                            with conn.session as s:
+                                s.execute(text("DELETE FROM assets_liabilities WHERE id = :id"), {"id": selected_id})
+                                s.commit()
+                            st.success(f"Deleted {current_data['name']} successfully!")
+                            time.sleep(1) # Pause so you can read the success message
+                            st.rerun()    # Instantly refresh the page to update the dropdowns
+                            
+                        elif action == "Update Record":
+                            with conn.session as s:
+                                # --- UPDATED: Added is_fi_eligible to UPDATE statement ---
+                                sql = text("""
+                                    UPDATE assets_liabilities 
+                                    SET name=:name, category=:cat, type=:type, currency=:curr, is_active=:active, is_fi_eligible=:fi
+                                    WHERE id=:id
+                                """)
+                                s.execute(sql, {
+                                    "name": new_name, "cat": new_category, "type": new_type, 
+                                    "curr": new_currency, "active": new_active, "fi": new_fi, "id": selected_id
+                                })
+                                s.commit()
+                            st.success(f"Updated {new_name} successfully!")
+                            time.sleep(1)
+                            st.rerun()
 
 # ==========================================
 # MODULE 3: INVESTMENTS
