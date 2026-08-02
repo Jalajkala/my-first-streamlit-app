@@ -596,7 +596,7 @@ elif menu == "Investments":
             account_options[row['account_name']] = row['id']
 
         with st.form("add_investment_form", clear_on_submit=True):
-                col1, col2 = st.columns(2)
+            col1, col2 = st.columns(2)
             with col1:
                     inv_name = st.text_input("Investment Name")
                     inv_type = st.selectbox("Investment Type", ["Mutual Fund", "SIP", "Fixed Deposit", "Recurring Deposit", "Stock", "Bonds", "EPF", "PPF", "Other"])
