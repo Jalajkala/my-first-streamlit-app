@@ -78,32 +78,32 @@ def check_password():
 
 
 # 3. WRAP THE ENTIRE APP IN THE PASSWORD CHECK
-    if check_password():
+if check_password():
         
-        # --- EVERYTHING BELOW THIS LINE IS YOUR EXISTING APP CODE ---
+    # --- EVERYTHING BELOW THIS LINE IS YOUR EXISTING APP CODE ---
         
-        st.title("🏦 Finealth: Our Financial Health Tracker")
+    st.title("🏦 Finealth: Our Financial Health Tracker")
     
-        # Connect to the Neon PostgreSQL Database
-        conn = st.connection("postgresql", type="sql")
+    # Connect to the Neon PostgreSQL Database
+    conn = st.connection("postgresql", type="sql")
     
-        # --- APP NAVIGATION ---
-        st.sidebar.title("Navigation")
-        menu = st.sidebar.radio("Go to module:", [
-            "Dashboard", 
-            "Accounts", 
-            "Assets & Liabilities", 
-            "Investments", 
-            "Baseline Snapshots", 
-            "Transactions",
-            "Financial Goals" # <-- Add this new option
-        ])
+    # --- APP NAVIGATION ---
+    st.sidebar.title("Navigation")
+    menu = st.sidebar.radio("Go to module:", [
+        "Dashboard", 
+        "Accounts", 
+        "Assets & Liabilities", 
+        "Investments", 
+        "Baseline Snapshots", 
+        "Transactions",
+        "Financial Goals" # <-- Add this new option
+    ])
     
-        # Add a logout button to the bottom of the sidebar
-        st.sidebar.divider()
-        if st.sidebar.button("Log Out"):
-            st.session_state["password_correct"] = False
-            st.rerun()
+    # Add a logout button to the bottom of the sidebar
+    st.sidebar.divider()
+    if st.sidebar.button("Log Out"):
+        st.session_state["password_correct"] = False
+        st.rerun()
 
 # ==========================================
 # MODULE 0: DASHBOARD
