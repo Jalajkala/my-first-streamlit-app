@@ -85,7 +85,13 @@ if check_password():
     st.title("🏦 Finealth: Our Financial Health Tracker")
     
     # Connect to the Neon PostgreSQL Database
-    conn = st.connection("postgresql", type="sql")
+    conn = st.connection(
+        "postgresql", # Keep whatever name you already had here in the quotes
+        type="sql", 
+        autocommit=True, 
+        pool_pre_ping=True,  # Tests the connection before sending queries
+        pool_recycle=300     # Recycles idle connections every 5 minutes
+    )
     
     # --- APP NAVIGATION ---
     st.sidebar.title("Navigation")
