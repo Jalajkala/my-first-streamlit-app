@@ -82,7 +82,7 @@ if check_password():
         
     # --- EVERYTHING BELOW THIS LINE IS YOUR EXISTING APP CODE ---
         
-    st.title("🏦 Finealth: Our Financial Health Tracker")
+    st.title("🏦 Finealth: Personal Financial Health Tracker")
     
     # Connect to the Neon PostgreSQL Database
     conn = st.connection(
