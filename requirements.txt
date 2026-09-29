@@ -3,4 +3,5 @@ pandas
 psycopg2-binary
 sqlalchemy
 st-annotated-text
+altair
 plotly
