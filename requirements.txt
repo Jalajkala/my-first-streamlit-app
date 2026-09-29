@@ -1,8 +1,7 @@
 streamlit
 pandas
-psycopg
-psycopg2-binary
 sqlalchemy
-st-annotated-text
+psycopg2-binary
+psycopg[binary]
 altair
 plotly
