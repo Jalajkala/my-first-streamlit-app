@@ -6,7 +6,6 @@ import time
 import altair as alt
 import plotly.express as px
 import psycopg
-import psycopg_c
 import psycopg_binary
 import psycopg_python
 
