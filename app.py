@@ -6,6 +6,10 @@ import time
 import altair as alt
 import plotly.express as px
 import psycopg
+import psycopg_c
+import psycopg_binary
+import psycopg_python
+
 
 # 1. PAGE CONFIG MUST BE THE VERY FIRST STREAMLIT COMMAND
 st.set_page_config(page_title="Finealth Dashboard", page_icon="🏦", layout="wide")
